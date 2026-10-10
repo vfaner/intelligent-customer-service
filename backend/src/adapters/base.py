@@ -8,9 +8,16 @@ Both must support streaming via SSE.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import AsyncIterator, List, Optional, Tuple
+from typing import AsyncIterator, Callable, Coroutine, List, Optional, Tuple
+
+from tenacity import stop_after_attempt, wait_exponential
+
+log = logging.getLogger(__name__)
 
 
 class LLMProtocolError(Exception):
@@ -45,6 +52,12 @@ RATE_LIMIT_BUDGET = 45.0     # seconds to keep retrying before giving up
 RATE_RETRY_MIN = 1.0
 RATE_RETRY_MAX = 8.0
 
+# Shared tenacity policy for one-shot vendor calls (chat + embeddings):
+# 3 attempts, gentle exponential backoff, original error re-raised so
+# callers see the vendor's message, not a tenacity RetryError wrapper.
+RETRY_STOP = stop_after_attempt(3)
+RETRY_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=4)
+
 
 def rate_limit_wait(attempt: int, retry_after: float | None = None) -> float:
     """Exponential backoff for a rate-limited attempt (1-indexed)."""
@@ -61,6 +74,68 @@ def parse_retry_after(headers) -> float | None:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _budget_exceeded(attempt: int, waited: float) -> LLMProtocolError:
+    return LLMProtocolError(
+        f"模型接口持续返回 429（已重试 {attempt} 次、等待 {waited:.0f} 秒）。"
+        f"账号调用频率或配额已达上限，请稍后再试。"
+    )
+
+
+async def call_with_rate_limit_retry(factory: Callable[[], Coroutine]) -> str:
+    """Await ``factory()``, riding out 429s up to RATE_LIMIT_BUDGET seconds.
+
+    The tenacity decorator on ``_chat_once`` deliberately does NOT retry
+    LLMRateLimited — a rate-limited quota needs tens of seconds, not two
+    fast attempts — so both protocol adapters share this outer loop.
+    """
+    attempt = 0
+    started = time.monotonic()
+    while True:
+        attempt += 1
+        try:
+            return await factory()
+        except LLMRateLimited as e:
+            waited = time.monotonic() - started
+            if waited >= RATE_LIMIT_BUDGET:
+                raise _budget_exceeded(attempt, waited) from e
+            wait = rate_limit_wait(attempt, e.retry_after)
+            log.info(
+                "LLM rate-limited (%d 次, 已等 %.0fs/%.0fs), %.0fs 后重试",
+                attempt, waited, RATE_LIMIT_BUDGET, wait,
+            )
+            await asyncio.sleep(wait)
+
+
+async def stream_with_rate_limit_retry(
+    factory: Callable[[], AsyncIterator[str]],
+) -> AsyncIterator[str]:
+    """Yield from ``factory()`` with the same 429 policy as the unary call.
+
+    @retry can't wrap an async generator, hence the hand-rolled loop. A
+    retry never duplicates text already sent to the client: the adapters
+    raise LLMRateLimited only from the pre-stream status check — mid-stream
+    vendor errors surface as LLMProtocolError, which propagates.
+    """
+    attempt = 0
+    started = time.monotonic()
+    while True:
+        attempt += 1
+        try:
+            async for piece in factory():
+                yield piece
+            return
+        except LLMRateLimited as e:
+            waited = time.monotonic() - started
+            if waited >= RATE_LIMIT_BUDGET:
+                raise _budget_exceeded(attempt, waited) from e
+            wait = rate_limit_wait(attempt, e.retry_after)
+            log.info(
+                "LLM rate-limited (%d 次, 已等 %.0fs/%.0fs), %.0fs 后重试",
+                attempt, waited, RATE_LIMIT_BUDGET, wait,
+            )
+            await asyncio.sleep(wait)
 
 
 @dataclass

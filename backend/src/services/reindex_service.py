@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 
 from ..core.database import session_scope
-from ..models.config import CSConfig
+from ..models.config import CSConfig, fetch_config_row
 from ..models.document import Document
 from ..utils.timeutil import utcnow_naive
 from ..vector_store.factory import build_vector_store
@@ -106,7 +106,7 @@ def _snapshot() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 async def _mutate_config(mutate) -> None:
     async with session_scope() as session:
-        row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+        row = await fetch_config_row(session)
         if row is None:
             row = CSConfig(data={})
             session.add(row)
@@ -118,7 +118,7 @@ async def _mutate_config(mutate) -> None:
 
 async def _stored_signature() -> Optional[Dict[str, Any]]:
     async with session_scope() as session:
-        row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+        row = await fetch_config_row(session)
         sig = (row.data or {}).get("index_signature") if row else None
         return dict(sig) if isinstance(sig, dict) else None
 

@@ -6,12 +6,17 @@ remote gRPC server. Uses cosine similarity; converts the raw score to
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from .base import BaseVectorStore, ChunkRecord, VectorHit, VectorStoreError
+from .base import (
+    BaseVectorStore,
+    ChunkRecord,
+    VectorHit,
+    VectorStoreError,
+    to_thread as _to_thread,
+)
 
 log = logging.getLogger(__name__)
 
@@ -27,10 +32,6 @@ def _point_id(chunk_id: str) -> str:
     keeps upserts idempotent (same chunk id → same point).
     """
     return str(uuid.uuid5(_QDRANT_ID_NAMESPACE, chunk_id))
-
-
-def _to_thread(func, /, *args, **kwargs):
-    return asyncio.get_running_loop().run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 class QdrantStore(BaseVectorStore):

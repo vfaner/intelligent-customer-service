@@ -7,18 +7,19 @@ we convert to a 0..1 score by ``1 - distance``.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .base import BaseVectorStore, ChunkRecord, VectorHit, VectorStoreError
+from .base import (
+    BaseVectorStore,
+    ChunkRecord,
+    VectorHit,
+    VectorStoreError,
+    to_thread as _to_thread,
+)
 
 log = logging.getLogger(__name__)
-
-
-def _to_thread(func, /, *args, **kwargs):
-    return asyncio.get_running_loop().run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 class ChromaStore(BaseVectorStore):

@@ -17,7 +17,7 @@ from ..core.config import get_settings
 from ..core.database import get_engine, session_scope
 from ..core.registry import AI_PROVIDERS, get_provider
 from ..models.base import Base
-from ..models.config import CSConfig
+from ..models.config import CSConfig, fetch_config_row
 from ..models.document import Document
 
 # Make sure all mappers are registered on Base.metadata.
@@ -59,7 +59,7 @@ async def _check_db() -> bool:
 async def _has_config_row() -> bool:
     try:
         async with session_scope() as session:
-            row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+            row = await fetch_config_row(session)
             return row is not None
     except Exception as e:
         log.warning("config check failed: %s", e)
@@ -153,7 +153,7 @@ async def _api_keys_set(settings) -> tuple[bool, bool]:
     emb_set = bool(settings.embedding.api_key)
     try:
         async with session_scope() as session:
-            row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+            row = await fetch_config_row(session)
             data = (row.data or {}) if row else {}
         if deobfuscate(data.get("model_api_key") or ""):
             llm_set = True
@@ -272,7 +272,7 @@ async def init_all() -> InitResult:
 
     # 4) Seed default CSConfig if missing
     async with session_scope() as session:
-        existing = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+        existing = await fetch_config_row(session)
         if existing is None:
             provider = get_provider(settings.llm.provider) or AI_PROVIDERS[0]
             base_url = settings.llm.base_url or provider.base_url

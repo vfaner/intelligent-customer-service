@@ -9,13 +9,11 @@ import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
-
 from ..core.config import Settings, get_settings
 from ..core.exceptions import EmbeddingError as _EmbeddingAppError
 from ..embeddings.base import BaseEmbedder
 from ..embeddings.openai_compatible_embedder import OpenAICompatibleEmbedder
-from ..models.config import CSConfig
+from ..models.config import fetch_config_row
 from ..utils.obfuscation import deobfuscate
 from . import runtime
 
@@ -45,7 +43,7 @@ async def load_embedding_config(settings: Optional[Settings] = None) -> Dict[str
         from ..core.database import session_scope
 
         async with session_scope() as session:
-            row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+            row = await fetch_config_row(session)
             runtime = (row.data or {}).get("embedding") if row else None
     except Exception as exc:  # DB not ready yet — .env only
         log.debug("Could not read embedding config from DB: %s", exc)

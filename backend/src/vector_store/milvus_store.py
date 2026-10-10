@@ -15,13 +15,18 @@ scalar field so deletes and filters can use a boolean expression.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .base import BaseVectorStore, ChunkRecord, VectorHit, VectorStoreError
+from .base import (
+    BaseVectorStore,
+    ChunkRecord,
+    VectorHit,
+    VectorStoreError,
+    to_thread as _to_thread,
+)
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +35,6 @@ _ID_MAX_LEN = 512
 _DOC_ID_MAX_LEN = 128
 _TEXT_MAX_LEN = 65535
 _META_MAX_LEN = 65535
-
-
-def _to_thread(func, /, *args, **kwargs):
-    return asyncio.get_running_loop().run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 def _escape(value: str) -> str:

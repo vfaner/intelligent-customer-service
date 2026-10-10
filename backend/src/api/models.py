@@ -63,12 +63,11 @@ async def test_model(body: TestIn) -> dict:
 
     s = get_settings()
     from ..utils.obfuscation import deobfuscate
-    from sqlalchemy import select
     from ..core.database import session_scope
-    from ..models.config import CSConfig
+    from ..models.config import fetch_config_row
 
     async with session_scope() as session:
-        row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+        row = await fetch_config_row(session)
         runtime = row.data if row else {}
 
     api_key = override.get("model_api_key") or deobfuscate(runtime.get("model_api_key") or "") or s.llm.api_key
@@ -156,13 +155,12 @@ async def available_models(body: AvailableModelsIn) -> dict:
     from ..core.config import get_settings
     from ..core.database import session_scope
     from ..core.registry import get_provider
-    from ..models.config import CSConfig
+    from ..models.config import fetch_config_row
     from ..utils.obfuscation import deobfuscate
-    from sqlalchemy import select
 
     settings = get_settings()
     async with session_scope() as session:
-        row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+        row = await fetch_config_row(session)
         runtime = (row.data or {}) if row else {}
 
     provider_code = body.provider or runtime.get("model_provider") or settings.llm.provider

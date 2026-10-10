@@ -94,14 +94,10 @@ class DocumentService:
             return self._vector_store
         override = None
         try:
-            from sqlalchemy import select
-
-            from ..models.config import CSConfig
+            from ..models.config import fetch_config_row
 
             async with session_scope() as session:
-                row = (
-                    await session.execute(select(CSConfig).limit(1))
-                ).scalar_one_or_none()
+                row = await fetch_config_row(session)
                 vec = (row.data or {}).get("vector_db") if row else None
                 if vec and vec.get("embedding_dimension"):
                     override = int(vec["embedding_dimension"])
@@ -184,12 +180,10 @@ class DocumentService:
             "prefix_heading": s.rag.chunk_prefix_heading,
         }
         try:
-            from sqlalchemy import select
-
-            from ..models.config import CSConfig
+            from ..models.config import fetch_config_row
 
             async with session_scope() as session:
-                row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+                row = await fetch_config_row(session)
                 rag = (row.data or {}).get("rag") if row else None
             if rag:
                 if rag.get("chunk_size"):

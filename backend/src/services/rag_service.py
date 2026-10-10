@@ -101,13 +101,11 @@ class RAGService:
             "relevance_threshold": s.rag.relevance_threshold,
         }
         try:
-            from sqlalchemy import select
-
             from ..core.database import session_scope
-            from ..models.config import CSConfig
+            from ..models.config import fetch_config_row
 
             async with session_scope() as session:
-                row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+                row = await fetch_config_row(session)
                 rag = (row.data or {}).get("rag") if row else None
             if rag:
                 if rag.get("top_k"):

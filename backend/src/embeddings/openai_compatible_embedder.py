@@ -13,13 +13,9 @@ import time
 from typing import List
 
 import httpx
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception
 
+from ..adapters.base import RETRY_STOP, RETRY_WAIT, parse_retry_after
 from ..core.exceptions import make_retry_predicate
 from .base import BaseEmbedder, EmbeddingError
 
@@ -166,8 +162,8 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
         # key or model name fails identically every time. 429 never reaches
         # this predicate (raised as _RateLimited, handled by embed()'s loop).
         retry=retry_if_exception(make_retry_predicate(httpx.HTTPError, EmbeddingError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
+        stop=RETRY_STOP,
+        wait=RETRY_WAIT,
         reraise=True,
     )
     async def _call_once(self, batch: List[str]) -> List[List[float]]:
@@ -180,12 +176,8 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
         if resp.status_code >= 400:
             body = resp.text[:400]
             if resp.status_code == 429:
-                ra = resp.headers.get("Retry-After")
-                try:
-                    wait = float(ra) if ra else None
-                except ValueError:
-                    wait = None
-                raise _RateLimited(body, wait)
+                # parse_retry_after: shared with the chat adapters.
+                raise _RateLimited(body, parse_retry_after(resp.headers))
             if resp.status_code == 400 and self._is_batch_too_large(body):
                 # Signal the batch-size problem distinctly so `embed()` can
                 # retry smaller instead of tenacity blindly repeating a call

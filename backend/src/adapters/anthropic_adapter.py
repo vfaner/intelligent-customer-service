@@ -5,33 +5,25 @@ top-level field rather than a message.
 """
 from __future__ import annotations
 
-import asyncio
 import json
-import logging
-import time
 from typing import AsyncIterator, List, Optional
 
 import httpx
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception
 
 from ..core.exceptions import make_retry_predicate
 from .base import (
-    RATE_LIMIT_BUDGET,
+    RETRY_STOP,
+    RETRY_WAIT,
     BaseProvider,
     LLMConfig,
     LLMMessage,
     LLMProtocolError,
     LLMRateLimited,
+    call_with_rate_limit_retry,
     parse_retry_after,
-    rate_limit_wait,
+    stream_with_rate_limit_retry,
 )
-
-log = logging.getLogger(__name__)
 
 
 def _split_system(messages: List[LLMMessage]) -> tuple[str, List[dict]]:
@@ -117,27 +109,14 @@ class AnthropicStyleProvider(BaseProvider):
             max_tokens if max_tokens is not None else self.config.max_tokens,
             stream=False,
         )
-        attempt = 0
-        started = time.monotonic()
-        while True:
-            attempt += 1
-            try:
-                return await self._chat_once(payload)
-            except LLMRateLimited as e:
-                waited = time.monotonic() - started
-                if waited >= RATE_LIMIT_BUDGET:
-                    raise LLMProtocolError(
-                        f"模型接口持续返回 429（已重试 {attempt} 次、等待 {waited:.0f} 秒）。"
-                        f"账号调用频率或配额已达上限，请稍后再试。"
-                    ) from e
-                await asyncio.sleep(rate_limit_wait(attempt, e.retry_after))
+        return await call_with_rate_limit_retry(lambda: self._chat_once(payload))
 
     @retry(
         # 4xx (except 429) carries upstream_status and is NOT retried — a bad
         # key or model name fails identically every time.
         retry=retry_if_exception(make_retry_predicate(httpx.HTTPError, LLMProtocolError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
+        stop=RETRY_STOP,
+        wait=RETRY_WAIT,
         reraise=True,
     )
     async def _chat_once(self, payload: dict) -> str:
@@ -178,30 +157,13 @@ class AnthropicStyleProvider(BaseProvider):
         headers = self._headers()
         headers["Accept"] = "text/event-stream"
 
-        # Retry 429s that happen before streaming begins. Once tokens have
-        # been yielded, restarting would duplicate output, so only pre-stream
-        # failures are retried.
-        attempt = 0
-        started = time.monotonic()
-        while True:
-            attempt += 1
-            try:
-                async for piece in self._stream_once(headers, payload):
-                    yield piece
-                return
-            except LLMRateLimited as e:
-                waited = time.monotonic() - started
-                if waited >= RATE_LIMIT_BUDGET:
-                    raise LLMProtocolError(
-                        f"模型接口持续返回 429（已重试 {attempt} 次、等待 {waited:.0f} 秒）。"
-                        f"账号调用频率或配额已达上限，请稍后再试。"
-                    ) from e
-                wait = rate_limit_wait(attempt, e.retry_after)
-                log.info(
-                    "LLM rate-limited (%d 次, 已等 %.0fs/%.0fs), %.0fs 后重试",
-                    attempt, waited, RATE_LIMIT_BUDGET, wait,
-                )
-                await asyncio.sleep(wait)
+        # 429s before the stream starts are retried by the shared loop in
+        # adapters.base — once tokens have been yielded a restart would
+        # duplicate output, and mid-stream vendor errors aren't LLMRateLimited.
+        async for piece in stream_with_rate_limit_retry(
+            lambda: self._stream_once(headers, payload)
+        ):
+            yield piece
 
     async def _stream_once(self, headers: dict, payload: dict) -> AsyncIterator[str]:
         data_lines = 0

@@ -5,12 +5,11 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.registry import list_providers
-from ..models.config import CSConfig
+from ..models.config import CSConfig, fetch_config_row
 from ..utils.obfuscation import deobfuscate, obfuscate
 
 router = APIRouter()
@@ -147,7 +146,7 @@ class CSConfigOut(CSConfigIn):
 
 @router.get("", response_model=CSConfigOut, summary="Get customer-service config")
 async def get_config(db: AsyncSession = Depends(get_db)) -> CSConfigOut:
-    row = (await db.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+    row = await fetch_config_row(db)
     if row is None:
         return _config_with_env_defaults()
     return CSConfigOut.from_data(row.data or {}, mask_key=True)
@@ -203,7 +202,7 @@ def _config_with_env_defaults() -> CSConfigOut:
 
 @router.put("", response_model=CSConfigOut, summary="Update customer-service config")
 async def put_config(body: CSConfigIn, db: AsyncSession = Depends(get_db)) -> CSConfigOut:
-    row = (await db.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+    row = await fetch_config_row(db)
     previous: Dict[str, Any] = dict((row.data if row is not None else None) or {})
 
     # Merge semantics: only fields the client actually SENT overwrite stored
@@ -295,7 +294,7 @@ class CSConfigPublicOut(BaseModel):
     summary="Public customer-service display info (no login required)",
 )
 async def get_public_config(db: AsyncSession = Depends(get_db)) -> CSConfigPublicOut:
-    row = (await db.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+    row = await fetch_config_row(db)
     data = (row.data if row is not None else None) or {}
     fields = CSConfigPublicOut.model_fields
     return CSConfigPublicOut(

@@ -1,6 +1,7 @@
 """Vector store base + shared types."""
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -12,6 +13,15 @@ from typing import Any, Dict, List, Optional
 # rag_service's `except VectorStoreError: raise` was dead code, catching the
 # *other* class.
 from ..core.exceptions import VectorStoreError  # noqa: F401  (re-exported)
+
+
+def to_thread(func, /, *args, **kwargs):
+    """Run a blocking vector-store SDK call on the default executor.
+
+    Every store wraps its sync client exactly this way; one shared copy so
+    the shim can't drift between Chroma/Qdrant/Milvus.
+    """
+    return asyncio.get_running_loop().run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 @dataclass

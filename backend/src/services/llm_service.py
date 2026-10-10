@@ -16,9 +16,8 @@ from ..adapters.base import BaseProvider, LLMMessage
 from ..adapters.factory import build_provider
 from ..core.config import Settings, get_settings
 from ..core.exceptions import LLMError
-from ..models.config import CSConfig
+from ..models.config import fetch_config_row
 from ..utils.obfuscation import deobfuscate
-from sqlalchemy import select
 from . import runtime
 
 log = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ async def _load_runtime_config() -> dict:
 
     try:
         async with session_scope() as session:
-            row = (await session.execute(select(CSConfig).limit(1))).scalar_one_or_none()
+            row = await fetch_config_row(session)
             if row is None:
                 return {}
             return row.data or {}
