@@ -19,9 +19,12 @@ Set ``strategy="window"`` to get the old behaviour.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Sequence
+
+log = logging.getLogger(__name__)
 
 Strategy = Literal["structure", "window"]
 
@@ -191,7 +194,6 @@ def _split_long_text(text: str, start: int, chunk_size: int, chunk_overlap: int)
     """Window-split a single oversized block on sentence boundaries."""
     out: List[tuple[str, int, int]] = []
     n = len(text)
-    step = max(1, chunk_size - chunk_overlap)
     i = 0
     while i < n:
         end = min(i + chunk_size, n)
@@ -206,7 +208,11 @@ def _split_long_text(text: str, start: int, chunk_size: int, chunk_overlap: int)
             out.append((piece, start + i, start + end))
         if end == n:
             break
-        i = max(i + step, end - chunk_overlap) if chunk_overlap else end
+        # Advance from the ACTUAL end (which sentence-boundary search may have
+        # pulled far back), not from a fixed i + (chunk_size - overlap) step.
+        # The old fixed step left [end, i+step) in no chunk at all — text was
+        # silently lost at ingest time. `i + 1` keeps progress when overlap=0.
+        i = max(end - chunk_overlap, i + 1)
     return out
 
 
@@ -337,7 +343,6 @@ def _fallback_split(text: str, chunk_size: int, chunk_overlap: int) -> List[Text
 
     chunks: List[TextChunk] = []
     n = len(text)
-    step = chunk_size - chunk_overlap
     i = 0
     idx = 0
     while i < n:
@@ -354,7 +359,10 @@ def _fallback_split(text: str, chunk_size: int, chunk_overlap: int) -> List[Text
             idx += 1
         if end == n:
             break
-        i += step
+        # Anchor the next window to the actual `end` (see _split_long_text):
+        # a fixed i += chunk_size - overlap step silently dropped whatever the
+        # sentence-boundary search had skipped over.
+        i = max(end - chunk_overlap, i + 1)
     return chunks
 
 
@@ -388,6 +396,7 @@ def split_text(
             if chunks:
                 return chunks
         except Exception:
-            # Never let a splitter bug block ingestion.
-            pass
+            # Never let a splitter bug block ingestion — but make it visible:
+            # silently falling back hides splitter regressions.
+            log.warning("structure split failed; falling back to window split", exc_info=True)
     return _fallback_split(text, chunk_size, chunk_overlap)

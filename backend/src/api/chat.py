@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..adapters.base import LLMMessage
 from ..core.config import get_settings
 from ..core.database import get_db
-from ..core.exceptions import LLMError
 from ..core.i18n import (
     DEFAULT_LANG,
     ERROR_PREFIX,
@@ -22,7 +21,11 @@ from ..core.i18n import (
     pick,
 )
 from ..services.rag_service import RAGService
-from ..services.session_service import SessionService
+from ..services.session_service import (
+    MAX_HISTORY_CHARS,
+    MAX_HISTORY_MESSAGES,
+    SessionService,
+)
 from ..utils.sse import sse_pack
 
 log = logging.getLogger(__name__)
@@ -56,15 +59,36 @@ def _sse(event: str, data, *, id: Optional[str] = None) -> bytes:
 
 
 def _history_to_llm(history: List[dict]) -> List[LLMMessage]:
+    """Sanitize a client-supplied history override.
+
+    Only user/assistant roles are accepted: a client-provided ``system``
+    message would sit right after the RAG system prompt and could override
+    the "answer only from the retrieved documents" constraint. The same caps
+    as the server-side history apply, so the public endpoint cannot be used
+    to burn unlimited tokens.
+    """
     out: List[LLMMessage] = []
     for item in history or []:
         if not isinstance(item, dict):
             continue
         role = item.get("role")
         content = item.get("content")
-        if role in ("user", "assistant", "system") and isinstance(content, str):
-            out.append(LLMMessage(role=role, content=content))
-    return out
+        if role in ("user", "assistant") and isinstance(content, str):
+            piece = content.strip()
+            if piece:
+                out.append(LLMMessage(role=role, content=piece))
+    out = out[-MAX_HISTORY_MESSAGES:]
+    # Head-cut on character count, keeping the most recent turns — mirrors
+    # SessionService.build_history.
+    trimmed: List[LLMMessage] = []
+    used = 0
+    for m in reversed(out):
+        if used + len(m.content) > MAX_HISTORY_CHARS:
+            break
+        trimmed.append(m)
+        used += len(m.content)
+    trimmed.reverse()
+    return trimmed
 
 
 # ----- Endpoints -------------------------------------------------------
@@ -82,14 +106,17 @@ async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)) -> ChatOut:
         )
         session_id = sess.id
 
-    # Persist user turn
-    await session_svc.add_message(session_id, "user", body.message)
-
     history_llm: List[LLMMessage] = []
     if body.history:
         history_llm = _history_to_llm(body.history)
     else:
         history_llm = await session_svc.build_history(session_id)
+
+    # Persist the user turn *after* the history is read: add_message flushes,
+    # and build_history in the same transaction would then return the current
+    # question as the last history item — RAGService appends the question
+    # itself, so the model saw it twice.
+    await session_svc.add_message(session_id, "user", body.message)
 
     rag = RAGService(settings)
     try:
@@ -99,8 +126,6 @@ async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)) -> ChatOut:
             agent_name=body.agent_name,
             lang=lang,
         )
-    except LLMError as e:
-        raise
     finally:
         await rag.aclose()
 
@@ -132,13 +157,14 @@ async def chat_stream(body: ChatIn, db: AsyncSession = Depends(get_db)) -> Strea
             session_id = sess.id
 
         yield _sse("meta", {"session_id": session_id, "lang": lang})
-        await session_svc.add_message(session_id, "user", body.message)
 
         history_llm: List[LLMMessage] = []
         if body.history:
             history_llm = _history_to_llm(body.history)
         else:
             history_llm = await session_svc.build_history(session_id)
+        # Persist after the history is read — see the non-streaming endpoint.
+        await session_svc.add_message(session_id, "user", body.message)
 
         rag = RAGService(settings)
         answer_parts: List[str] = []
@@ -150,13 +176,18 @@ async def chat_stream(body: ChatIn, db: AsyncSession = Depends(get_db)) -> Strea
                 agent_name=body.agent_name,
                 lang=lang,
             ):
-                if sources is not None:
-                    sources_payload = sources
-                elif token:
+                # Two independent checks, not if/elif: the canned-refusal event
+                # carries BOTH text and an empty sources list in one tuple.
+                # The old `if sources is not None / elif token` swallowed the
+                # refusal text — the client got an empty bubble and the DB
+                # stored an empty answer.
+                if token:
                     answer_parts.append(token)
                     yield _sse("token", {"text": token})
+                if sources is not None:
+                    sources_payload = sources
 
-            full_answer = "".join(answer_parts) or (sources_payload and "") or ""
+            full_answer = "".join(answer_parts)
             if sources_payload is None:
                 # stream_ask guarantees a final event; safety net
                 sources_payload = []

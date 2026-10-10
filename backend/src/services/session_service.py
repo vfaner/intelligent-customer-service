@@ -2,20 +2,34 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..adapters.base import LLMMessage
 from ..models.message import Message
 from ..models.session import Session
 
+# Caps shared by server-side history building and the client-supplied history
+# sanitizer in api/chat.py — a client override must not be able to exceed what
+# the server itself would feed the model.
+MAX_HISTORY_MESSAGES = 20
+MAX_HISTORY_CHARS = 6000
+
 
 def _new_id() -> str:
     return uuid.uuid4().hex
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now (datetime.utcnow() is deprecated since 3.12).
+
+    Naive on purpose: it matches what SQLite's func.now() stores and what the
+    existing rows already contain, so ordering stays consistent.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class SessionService:
@@ -81,12 +95,16 @@ class SessionService:
             content=content,
             sources=sources,
             meta=meta or {},
+            # Explicit Python-side timestamp: SQLite's func.now() default has
+            # only second precision, which made created_at ordering ambiguous
+            # for a user+assistant pair written within the same second.
+            created_at=_utcnow(),
         )
         self.s.add(msg)
         # Touch session.updated_at
         sess = await self.get_session(session_id)
         if sess is not None:
-            sess.updated_at = datetime.utcnow()
+            sess.updated_at = _utcnow()
             if not sess.title or sess.title == "新会话":
                 # Auto-title from first user message
                 if role == "user" and content:
@@ -95,24 +113,30 @@ class SessionService:
         return msg
 
     async def get_messages(self, session_id: str, *, limit: int = 200) -> List[Message]:
+        """Return the most recent ``limit`` messages, oldest first.
+
+        The previous ``asc().limit()`` returned the OLDEST window instead, so
+        any session longer than the limit showed — and fed the model — nothing
+        but its opening turns.
+        """
         sess = await self.get_session(session_id)
         if sess is None:
             return []
         res = await self.s.execute(
             select(Message)
             .where(Message.session_id == session_id)
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.desc())
             .limit(limit)
         )
-        return list(res.scalars().all())
+        return list(reversed(res.scalars().all()))
 
     # ----- helpers for RAG multi-turn context -------------------------
     async def build_history(
         self,
         session_id: str,
         *,
-        max_messages: int = 20,
-        max_chars: int = 6000,
+        max_messages: int = MAX_HISTORY_MESSAGES,
+        max_chars: int = MAX_HISTORY_CHARS,
     ) -> List[LLMMessage]:
         """Return a trimmed history of ``[user, assistant, ...]`` for context.
 
