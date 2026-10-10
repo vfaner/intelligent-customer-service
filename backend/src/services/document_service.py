@@ -314,7 +314,9 @@ class DocumentService:
         err_msg: Optional[str] = None
         count = 0
         try:
-            parser = get_parser_by_code_safe(payload["parser_code"])
+            from ..parsers import get_parser_by_code
+
+            parser = get_parser_by_code(payload["parser_code"])
             # Parsing (PDF especially) and chunking are CPU/blocking-disk work
             # that can take seconds — off the event loop, or every concurrent
             # chat stream freezes while a document ingests.
@@ -500,8 +502,3 @@ class DocumentService:
         if data.get("status") == "ready":
             return data
         return await self.process_document(data["id"])
-
-
-def get_parser_by_code_safe(code: str):
-    from ..parsers import get_parser_by_code
-    return get_parser_by_code(code)

@@ -8,7 +8,7 @@ model so the front-end can pre-fill the form when a vendor is selected.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional, Tuple
 
 Protocol = Literal["openai", "anthropic"]
@@ -48,7 +48,6 @@ class ProviderSpec:
     endpoints: Tuple[ProtocolEndpoint, ...]
     default_embedding_model: str = ""
     recommended_models: Tuple[str, ...] = ()   # fallback when the API can't be listed
-    models_path: str = "/models"               # OpenAI-style listing endpoint
     supports_model_listing: bool = True
     notes: str = ""
     is_custom: bool = False
@@ -311,9 +310,6 @@ VECTOR_DB_PROVIDERS: List[VectorDBProvider] = [
     VectorDBProvider("milvus", "Milvus",  "企业级向量库；本地用 Milvus Lite（.db 文件），生产连 standalone/集群或 Zilliz Cloud"),
 ]
 
-VECTOR_DB_PROVIDERS_BY_CODE: Dict[str, VectorDBProvider] = {p.code: p for p in VECTOR_DB_PROVIDERS}
-
-
 def list_vector_db_providers() -> List[Dict[str, str]]:
     return [{"code": p.code, "display_name": p.display_name, "notes": p.notes}
             for p in VECTOR_DB_PROVIDERS]
@@ -337,11 +333,6 @@ DOCUMENT_PARSERS: List[DocumentParserSpec] = [
     DocumentParserSpec("xlsx", "Excel 表格",(".xlsx",),     "使用 openpyxl 解析"),
     DocumentParserSpec("pdf",  "PDF 文档", (".pdf",),       "使用 PyPDF2 解析（可选）"),
 ]
-
-DOCUMENT_PARSERS_BY_CODE: Dict[str, DocumentParserSpec] = {
-    p.code: p for p in DOCUMENT_PARSERS
-}
-
 
 def parser_for_filename(filename: str) -> Optional[DocumentParserSpec]:
     name = filename.lower()

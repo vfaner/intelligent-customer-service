@@ -5,7 +5,6 @@ from .system_prompts import (
     OUTPUT_LANG_RULE,
     PARTIAL_KNOWLEDGE_RULE,
     RAG_NO_HIT_REPLY,
-    RAG_REFUSAL_HINT,
     RAG_SYSTEM_PROMPT,
     build_rag_user_prompt,
     output_lang_rule,
@@ -14,7 +13,6 @@ from .system_prompts import (
 __all__ = [
     "RAG_SYSTEM_PROMPT",
     "RAG_NO_HIT_REPLY",
-    "RAG_REFUSAL_HINT",
     "NO_HIT_REPLY",
     "OUTPUT_LANG_RULE",
     "output_lang_rule",

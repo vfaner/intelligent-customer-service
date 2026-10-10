@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, Optional
 
 
 def sse_pack(event: str, data: Any, *, id: Optional[str] = None) -> bytes:
@@ -15,12 +15,6 @@ def sse_pack(event: str, data: Any, *, id: Optional[str] = None) -> bytes:
     for line in data.splitlines() or [""]:
         lines.append("data: " + line)
     return ("\n".join(lines) + "\n\n").encode("utf-8")
-
-
-async def sse_stream(events: AsyncIterator[Dict[str, Any]]) -> AsyncIterator[bytes]:
-    """Wrap an async event iterator as bytes for ``StreamingResponse``."""
-    async for ev in events:
-        yield sse_pack(ev["event"], ev["data"], id=ev.get("id"))
 
 
 def make_keeper() -> bytes:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List
 
 
 class DocumentParseError(Exception):
@@ -18,7 +17,3 @@ class Parser(ABC):
     @abstractmethod
     def parse(self, path: str | Path) -> str:
         """Return the document's plain text."""
-
-    def parse_many(self, paths: List[str | Path]) -> str:
-        """Parse and concatenate multiple files (default: join with blank line)."""
-        return "\n\n".join(self.parse(p) for p in paths)

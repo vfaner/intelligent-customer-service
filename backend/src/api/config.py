@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
-from ..core.exceptions import NotFoundError
 from ..core.registry import list_providers
 from ..models.config import CSConfig
 from ..utils.obfuscation import deobfuscate, obfuscate

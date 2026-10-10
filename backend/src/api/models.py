@@ -11,7 +11,6 @@ from ..core.registry import (
     list_providers,
     list_vector_db_providers,
 )
-from ..services.llm_service import LLMService
 
 router = APIRouter()
 
@@ -59,10 +58,7 @@ async def test_model(body: TestIn) -> dict:
     if body.protocol:
         override["protocol"] = body.protocol
 
-    # Test uses the LLM service but with override-only fields
-    svc = LLMService()
     from ..adapters.factory import build_provider
-    from ..adapters.base import LLMMessage
     from ..core.config import get_settings
 
     s = get_settings()
@@ -88,14 +84,10 @@ async def test_model(body: TestIn) -> dict:
         settings=s,
     )
     try:
-        msgs = [
-            LLMMessage(role="system", content="You are a helpful assistant."),
-            LLMMessage(role="user", content="Please reply with the single word: OK"),
-        ]
-        reply = (await provider.chat(msgs, temperature=0.0, max_tokens=20)).strip()
-        return {"ok": True, "message": f"测试成功 - 模型回复: {reply[:120]}"}
-    except Exception as e:
-        return {"ok": False, "message": f"测试失败: {e}"}
+        # BaseProvider.test() is the single copy of this probe (it used to be
+        # duplicated here verbatim, drift included).
+        ok, message = await provider.test()
+        return {"ok": ok, "message": message}
     finally:
         if hasattr(provider, "aclose"):
             await provider.aclose()  # type: ignore[attr-defined]
@@ -226,7 +218,7 @@ async def available_models(body: AvailableModelsIn) -> dict:
     if not isinstance(items, list):
         return fallback("厂商返回格式无法解析，改用内置推荐列表")
 
-    ids: List[str] = []
+    ids: list[str] = []
     for it in items:
         mid = it.get("id") or it.get("name") if isinstance(it, dict) else (it if isinstance(it, str) else None)
         if mid:

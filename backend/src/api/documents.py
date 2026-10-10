@@ -5,12 +5,10 @@ import asyncio
 import logging
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, File, UploadFile
+from pydantic import BaseModel
 
 from ..core.config import get_settings
-from ..core.database import get_db
 from ..core.exceptions import DocumentError, NotFoundError
 from ..core.registry import list_document_parsers
 from ..services.document_service import DocumentService

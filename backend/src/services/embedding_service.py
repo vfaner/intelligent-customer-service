@@ -151,21 +151,6 @@ def build_embedder_from(cfg: Dict[str, Any]) -> BaseEmbedder:
     )
 
 
-def build_embedder(settings: Optional[Settings] = None) -> BaseEmbedder:
-    """Synchronous .env-only builder (kept for CLI scripts and tests)."""
-    settings = settings or get_settings()
-    e = settings.embedding
-    return build_embedder_from(
-        {
-            "provider": e.provider,
-            "api_key": e.api_key,
-            "base_url": e.base_url,
-            "model": e.model,
-            "dim": e.dim,
-        }
-    )
-
-
 class EmbeddingService:
     """Resolves the embedder from DB config (falling back to .env) and shares it.
 

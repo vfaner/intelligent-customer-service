@@ -370,7 +370,6 @@ def split_text(
     text: str,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    separators: Optional[List[str]] = None,
     *,
     strategy: Strategy = "structure",
     prefix_heading: bool = True,

@@ -23,11 +23,6 @@ class AppError(Exception):
         self.details = details or {}
 
 
-class ConfigError(AppError):
-    status_code = 500
-    code = "config_error"
-
-
 class DocumentError(AppError):
     status_code = 400
     code = "document_error"

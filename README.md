@@ -382,7 +382,6 @@ intelligent-customer-service/
 │   │   ├── init_db.py                建表（一键初始化已覆盖，一般不用手跑）
 │   │   ├── check_env.py              依赖/配置自检
 │   │   ├── reset_admin_password.py   ← 忘记后台密码时重置
-│   │   ├── ingest_docs.py            批量导入
 │   │   └── ingest_retry.py           ← 大知识库自动重试入库
 │   └── samples/                      示例知识文档
 ├── frontend/

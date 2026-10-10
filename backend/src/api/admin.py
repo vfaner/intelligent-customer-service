@@ -37,11 +37,6 @@ EXPECTED_TABLES = {
 }
 
 
-def _engine_sync_url() -> str:
-    """Best-effort sync URL for raw SQL inspection (e.g. for SQLite)."""
-    return get_settings().database.url
-
-
 async def _check_db() -> bool:
     """True if every expected table exists."""
     try:

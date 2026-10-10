@@ -57,10 +57,6 @@ NO_HIT_REPLY: Dict[str, str] = {
 }
 
 
-# Slightly softer variant used when retrieval returned 0 hits at all.
-RAG_REFUSAL_HINT = "资料中未找到与该问题相关的内容。"
-
-
 # Used when `rag.allow_model_knowledge` is on and retrieval found nothing.
 # Deliberately does NOT label the answer as AI-sourced — that was an explicit
 # product decision. The trade-off: users can't tell a documented answer from a

@@ -164,11 +164,3 @@ class LLMService:
         """
         settings = self._settings or get_settings()
         return float(_resolved(settings, await _load_runtime_config())["temperature"])
-
-    async def test(self) -> tuple[bool, str]:
-        provider, owned = await _resolve(self._settings)
-        try:
-            return await provider.test()
-        finally:
-            if owned and hasattr(provider, "aclose"):
-                await provider.aclose()  # type: ignore[attr-defined]

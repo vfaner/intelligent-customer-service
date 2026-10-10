@@ -385,7 +385,6 @@ intelligent-customer-service/
 │   │   ├── init_db.py                create tables (one-click init covers this)
 │   │   ├── check_env.py              dependency/config self-check
 │   │   ├── reset_admin_password.py   ← reset the admin password from the shell
-│   │   ├── ingest_docs.py            bulk import
 │   │   └── ingest_retry.py           ← auto-retry ingestion for large corpora
 │   └── samples/                      sample knowledge doc
 ├── frontend/

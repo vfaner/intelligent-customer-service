@@ -101,10 +101,6 @@ def _snapshot() -> Dict[str, Any]:
     return deepcopy(_STATE)
 
 
-def is_running() -> bool:
-    return bool(_STATE["running"])
-
-
 # ---------------------------------------------------------------------------
 # CSConfig helpers (the row is a single JSON blob; always merge, never replace)
 # ---------------------------------------------------------------------------
