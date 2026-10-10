@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..adapters.base import LLMMessage
 from ..core.config import get_settings
 from ..core.database import get_db
+from ..core.exceptions import NotFoundError, ValidationError
 from ..core.i18n import (
     DEFAULT_LANG,
     ERROR_PREFIX,
@@ -91,6 +92,27 @@ def _history_to_llm(history: List[dict]) -> List[LLMMessage]:
     return trimmed
 
 
+async def _resolve_session(svc: SessionService, body: ChatIn, lang: str) -> str:
+    """Return a usable session id, validating a client-supplied one.
+
+    An unknown id used to be accepted blindly — every message landed in an
+    orphan thread nobody could read back. A session an admin has closed must
+    stop accepting turns.
+    """
+    if body.session_id:
+        sess = await svc.get_session(body.session_id)
+        if sess is None:
+            raise NotFoundError(f"Session not found: {body.session_id}")
+        if sess.status == "closed":
+            raise ValidationError("会话已关闭，请开始新会话")
+        return body.session_id
+    sess = await svc.create_session(
+        title=body.message[:30] or pick(NEW_SESSION_TITLE, lang),
+        meta={"lang": lang},
+    )
+    return sess.id
+
+
 # ----- Endpoints -------------------------------------------------------
 @router.post("", response_model=ChatOut, summary="One-shot RAG chat (JSON)")
 async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)) -> ChatOut:
@@ -98,13 +120,7 @@ async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)) -> ChatOut:
     session_svc = SessionService(db)
     lang = normalize_lang(body.lang)
 
-    session_id = body.session_id
-    if not session_id:
-        sess = await session_svc.create_session(
-            title=body.message[:30] or pick(NEW_SESSION_TITLE, lang),
-            meta={"lang": lang},
-        )
-        session_id = sess.id
+    session_id = await _resolve_session(session_svc, body, lang)
 
     history_llm: List[LLMMessage] = []
     if body.history:
@@ -146,16 +162,12 @@ async def chat_stream(body: ChatIn, db: AsyncSession = Depends(get_db)) -> Strea
     settings = get_settings()
     session_svc = SessionService(db)
     lang = normalize_lang(body.lang)
+    # Resolve (and validate) the session BEFORE the stream starts, so an
+    # unknown/closed id surfaces as a normal JSON 404/422 instead of an SSE
+    # error event halfway through.
+    session_id = await _resolve_session(session_svc, body, lang)
 
     async def gen() -> AsyncIterator[bytes]:
-        session_id = body.session_id
-        if not session_id:
-            sess = await session_svc.create_session(
-                title=body.message[:30] or pick(NEW_SESSION_TITLE, lang),
-                meta={"lang": lang},
-            )
-            session_id = sess.id
-
         yield _sse("meta", {"session_id": session_id, "lang": lang})
 
         history_llm: List[LLMMessage] = []

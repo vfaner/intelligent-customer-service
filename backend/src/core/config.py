@@ -58,7 +58,10 @@ def _version_from_pyproject() -> str:
 class AppSettings(BaseSettings):
     name: str = "IntelligentCustomerService"
     env: Literal["development", "production", "test"] = "development"
-    debug: bool = True
+    # Fail-safe default: debug=True makes Starlette render tracebacks over the
+    # project's sanitized 500 handler, leaking paths and locals. Local .env
+    # files set APP_DEBUG=true explicitly (see .env.example).
+    debug: bool = False
     secret_key: str = "change-me-in-production"
     host: str = "0.0.0.0"
     port: int = 8000

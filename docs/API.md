@@ -37,8 +37,10 @@ document endpoints require an admin token, so a visitor's upload would 401.
 ## Auth
 
 Everything the admin console writes to is behind a login. The visitor-facing
-half — chat, sessions, and the public slice of the config — is not, because the
-embedded widget runs on someone else's page with no credentials to offer.
+slice — chat, session **creation** and read-back of a held session id, and the
+public slice of the config — is not, because the embedded widget runs on
+someone else's page with no credentials to offer. Enumerating or closing
+other people's sessions is admin-only.
 
 Each section below is marked **🔒 login required** or **open**.
 
@@ -92,6 +94,11 @@ hint. Safe to call anonymously — it discloses no account details.
 A wrong username and a wrong password return the identical message
 (`用户名或密码错误`) and take the same time, so the endpoint cannot be used to
 discover which accounts exist.
+
+Brake on brute force: 5 failures within 15 minutes (counted per IP and per
+IP+username pair) lock the key out for 15 minutes, doubling per further
+violation up to 24 h. A locked attempt returns **429** `rate_limited` before
+any password hashing runs; a successful login wipes the counter.
 
 ### `POST /api/auth/logout` — open
 
@@ -505,6 +512,13 @@ similarity threshold means the same thing regardless of backend.
 `heading` is the section the chunk came from (empty when the document has no
 recognisable structure).
 
+`session_id` is validated: an unknown id returns **404** `not_found` (it used
+to be accepted blindly, orphaning every message), and a session an admin has
+closed returns **422**. Omit it to start a new session — the response carries
+the generated id. A client-supplied `history` (API consumers only; the widget
+relies on the server-side session) accepts `user`/`assistant` roles only and
+is capped at 20 messages / 6000 characters, mirroring the server-side trim.
+
 ### `POST /api/chat/stream`
 Server-Sent Events stream of the same call.
 
@@ -523,25 +537,29 @@ curl -N -X POST http://localhost:8000/api/chat/stream \
 
 ---
 
-## Sessions — open
+## Sessions — mixed
 
-No login, for the same reason as Chat — the widget creates and resumes its own
-session without any credential.
+Creating a session and reading back the messages of a session id you already
+hold are open — that is what lets the widget resume its own conversation
+without a credential. **Listing, inspecting and closing** sessions is 🔒 login
+required: these used to be open, which let any anonymous visitor dump every
+customer conversation.
 
-### `POST /api/sessions`
+### `POST /api/sessions` — open
 Create a session. Body: `{user_id?, title?, meta?}`.
 
-### `GET /api/sessions?user_id=&limit=`
-List sessions.
+### `GET /api/sessions/{id}/messages?limit=200` — open
+The most recent `limit` messages of one session, oldest first. A capability
+URL: whoever holds the id can read that thread back.
 
-### `GET /api/sessions/{id}`
-Get one session.
+### `GET /api/sessions?user_id=&limit=` — 🔒 login required
+List sessions, most recently updated first.
 
-### `POST /api/sessions/{id}/close`
-Mark a session as closed.
+### `GET /api/sessions/{id}` — 🔒 login required
+Session metadata (the title is the first question's first 30 chars).
 
-### `GET /api/sessions/{id}/messages?limit=200`
-Get all messages in a session.
+### `POST /api/sessions/{id}/close` — 🔒 login required
+Mark a session as closed. A closed session rejects new chat turns with 422.
 
 ---
 

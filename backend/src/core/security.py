@@ -157,3 +157,57 @@ def decode_token(token: str, secret: str) -> Dict[str, Any]:
 def new_secret() -> str:
     """A fresh random secret, for the 'you left APP_SECRET_KEY at the default' path."""
     return secrets.token_urlsafe(32)
+
+
+# The value documented in .env.example — public knowledge to anyone who has
+# read the repo. Admin tokens are HMAC-signed with APP_SECRET_KEY, so a server
+# left on this key can be taken over by anyone with a text editor.
+DEFAULT_SECRET = "change-me-in-production"
+
+# Where an auto-generated secret is persisted, relative to the working
+# directory (backend/) — the same convention as ./data/app.db and
+# ./data/chroma_db, and covered by the same .gitignore entry.
+SECRET_FILE = "data/.secret_key"
+
+
+class DefaultSecretError(RuntimeError):
+    """Production startup refused because APP_SECRET_KEY is the repo default."""
+
+
+def resolve_secret_key(current: str, env: str, secret_file: str = SECRET_FILE) -> str:
+    """Never run with the documented default secret.
+
+    * a custom key is returned unchanged;
+    * ``env == "production"`` refuses to start (DefaultSecretError) — silently
+      rotating the key there would invalidate tokens across restarts behind
+      the operator's back;
+    * anywhere else a random key is generated once and persisted next to the
+      database, so restarts and relogins behave normally. Concurrent workers
+      race on O_EXCL creation; the loser adopts the winner's key.
+    """
+    if current != DEFAULT_SECRET:
+        return current
+    if env == "production":
+        raise DefaultSecretError(
+            "APP_SECRET_KEY 仍是仓库默认值，生产环境拒绝启动。请生成随机值写入 .env："
+            'python -c "import secrets;print(secrets.token_urlsafe(48))"'
+        )
+    from pathlib import Path
+
+    path = Path(secret_file)
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+        if existing and existing != DEFAULT_SECRET:
+            return existing
+    except FileNotFoundError:
+        pass
+    generated = new_secret()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(generated)
+        return generated
+    except FileExistsError:
+        winner = path.read_text(encoding="utf-8").strip()
+        return winner or generated

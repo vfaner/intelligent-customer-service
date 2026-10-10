@@ -43,6 +43,7 @@ from src.core.config import get_settings
 from src.core.database import dispose_engine, get_engine, session_scope
 from src.core.db_drivers import DatabaseDriverError
 from src.core.exceptions import install_exception_handlers
+from src.core import security
 from src.core.security import TokenError, decode_token
 from src.models.base import Base
 from src.services.auth_service import ensure_default_admin
@@ -233,15 +234,26 @@ async def lifespan(app: FastAPI):
 
     # Seed the admin account so a fresh install has something to log in with.
     if settings.auth.enabled:
+        # Login tokens are HMAC-signed with APP_SECRET_KEY, and the documented
+        # default is public knowledge — anyone can forge an admin token with
+        # it. Production refuses to start on the default; other environments
+        # rotate in a generated key, persisted next to the database so tokens
+        # survive restarts.
+        if settings.app.secret_key == security.DEFAULT_SECRET:
+            try:
+                settings.app.secret_key = security.resolve_secret_key(
+                    settings.app.secret_key, settings.app.env
+                )
+            except security.DefaultSecretError as e:
+                log.critical("%s", e)
+                raise SystemExit(1)
+            log.warning(
+                "APP_SECRET_KEY 未设置——已生成随机密钥并持久化到 %s（重启不会把大家登出）。"
+                "公网部署前请在 .env 里显式设置 APP_SECRET_KEY。",
+                security.SECRET_FILE,
+            )
         async with session_scope() as db:
             await ensure_default_admin(db)
-        if settings.app.secret_key == "change-me-in-production" and settings.app.env != "development":
-            # Login tokens are HMAC-signed with this value. Leave it at the
-            # documented default on a public server and anyone can forge one.
-            log.warning(
-                "APP_SECRET_KEY is still the default — admin login tokens can be "
-                "forged. Set APP_SECRET_KEY in .env before exposing this server."
-            )
     else:
         log.warning("AUTH_ENABLED=false — the admin console and its APIs are UNPROTECTED.")
 
@@ -260,11 +272,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS.
+    #
+    # "*" combined with credentials is invalid per the CORS spec — Starlette
+    # then echoes any Origin back, which is equivalent to letting every site
+    # read authenticated responses. The public chat endpoints need no
+    # credentials, and the admin console is same-origin in normal deployments
+    # (and sends a Bearer header, not a cookie, when hosted elsewhere). List
+    # explicit origins in CORS_ORIGINS if cross-origin cookies are ever truly
+    # needed — credentials switch on automatically then.
+    origins = settings.cors.origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors.origins,
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials="*" not in origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -354,9 +375,13 @@ def create_app() -> FastAPI:
     # than by remembering to decorate it.
     #
     # Deliberately left open, because visitors on third-party sites call them:
-    #   /api/chat, /api/sessions   the chat window itself
+    #   /api/chat                  the chat window itself
+    #   /api/sessions (create + read-back of a held session id)
     #   /api/config/public         客服名称 / 头像 / 欢迎语 for the widget
     #   /api/auth/login, /state    you cannot log in from behind the login wall
+    #
+    # Enumerating or closing OTHER people's sessions is admin-only — it used to
+    # be public, which let any anonymous visitor dump every customer chat.
     guard = [Depends(require_admin)]
 
     # Public subset first — a separate router because router-level dependencies
@@ -369,6 +394,7 @@ def create_app() -> FastAPI:
     app.include_router(models_api.router, prefix="/api/models",    tags=["models"],    dependencies=guard)
     app.include_router(admin_api.router,  prefix="/api/admin",     tags=["admin"],     dependencies=guard)
 
+    app.include_router(sessions.admin_router, prefix="/api/sessions", tags=["sessions"], dependencies=guard)
     app.include_router(sessions.router,   prefix="/api/sessions",  tags=["sessions"])
     app.include_router(chat.router,       prefix="/api/chat",      tags=["chat"])
 

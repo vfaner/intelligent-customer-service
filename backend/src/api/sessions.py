@@ -12,7 +12,15 @@ from ..core.exceptions import NotFoundError
 from ..models.session import Session as ChatSession
 from ..services.session_service import SessionService
 
+# Public: session creation (paired with /api/chat) and reading back the
+# messages of a session id the caller already holds — a capability URL, which
+# is what lets an embedded widget restore its own history.
 router = APIRouter()
+
+# Admin-only: anything that enumerates or mutates OTHER people's sessions.
+# Listing sessions and reading arbitrary message threads used to be public,
+# which let any anonymous visitor dump every customer conversation.
+admin_router = APIRouter()
 
 
 # ----- Schemas ---------------------------------------------------------
@@ -63,7 +71,7 @@ async def create_session(
     return SessionOut.from_model(sess)
 
 
-@router.get("", response_model=List[SessionOut], summary="List chat sessions")
+@admin_router.get("", response_model=List[SessionOut], summary="List chat sessions (admin)")
 async def list_sessions(
     user_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -74,7 +82,7 @@ async def list_sessions(
     return [SessionOut.from_model(r) for r in rows]
 
 
-@router.get("/{session_id}", response_model=SessionOut)
+@admin_router.get("/{session_id}", response_model=SessionOut, summary="Session details (admin)")
 async def get_session(session_id: str, db: AsyncSession = Depends(get_db)) -> SessionOut:
     svc = SessionService(db)
     sess = await svc.get_session(session_id)
@@ -83,7 +91,7 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)) -> Se
     return SessionOut.from_model(sess)
 
 
-@router.post("/{session_id}/close", summary="Close a session")
+@admin_router.post("/{session_id}/close", summary="Close a session (admin)")
 async def close_session(session_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     svc = SessionService(db)
     ok = await svc.close_session(session_id)

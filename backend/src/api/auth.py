@@ -16,13 +16,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth import current_user_or_401
 from ..core.config import get_settings
 from ..core.database import get_db
+from ..core.exceptions import AuthError, RateLimitError
+from ..core.ratelimit import login_limiter
 from ..models.user import AdminUser
 from ..services import auth_service
 
@@ -132,9 +134,24 @@ async def auth_state(db: AsyncSession = Depends(get_db)) -> StateOut:
 
 @router.post("/login", response_model=TokenOut, summary="Sign in to the admin console")
 async def login(
-    body: LoginIn, response: Response, db: AsyncSession = Depends(get_db)
+    body: LoginIn, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> TokenOut:
-    user = await auth_service.authenticate(db, body.username, body.password)
+    # Brake on credential stuffing: two keys per attempt, see core/ratelimit.
+    ip = request.client.host if request.client else "unknown"
+    keys = (f"ip:{ip}", f"ip:{ip}|user:{body.username.strip().lower()}")
+    for key in keys:
+        remaining = login_limiter.check(key)
+        if remaining > 0:
+            minutes = int(remaining // 60) + 1
+            raise RateLimitError(f"尝试次数过多，请 {minutes} 分钟后再试")
+    try:
+        user = await auth_service.authenticate(db, body.username, body.password)
+    except AuthError:
+        for key in keys:
+            login_limiter.record_failure(key)
+        raise
+    for key in keys:
+        login_limiter.record_success(key)
     token, expires_in = auth_service.issue_token(user)
     _set_cookie(response, token, expires_in)
     return TokenOut(access_token=token, expires_in=expires_in, user=_user_out(user))

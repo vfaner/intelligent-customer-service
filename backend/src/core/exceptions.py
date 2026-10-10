@@ -69,6 +69,11 @@ class ValidationError(AppError):
     code = "validation_error"
 
 
+class RateLimitError(AppError):
+    status_code = 429
+    code = "rate_limited"
+
+
 def _payload(exc: AppError) -> Dict[str, Any]:
     return {"error": {"code": exc.code, "message": exc.message, "details": exc.details}}
 

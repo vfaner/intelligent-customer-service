@@ -24,6 +24,10 @@ MAX_PASSWORD_LEN = 128
 MIN_USERNAME_LEN = 3
 MAX_USERNAME_LEN = 32
 
+# password_hash -> "is it still the factory default"; see
+# is_default_password_in_use for why this exists.
+_default_pw_cache: dict = {}
+
 
 async def ensure_default_admin(db: AsyncSession) -> Optional[AdminUser]:
     """Create the seed account when the user table is empty. Idempotent.
@@ -103,12 +107,23 @@ async def is_default_password_in_use(db: AsyncSession) -> bool:
 
     Drives the login page's "default credentials" hint and the console's nag
     banner — both of which must disappear the moment the password is changed.
+
+    The result is cached per password hash: GET /api/auth/state is public and
+    unauthenticated, so without the cache every request would burn a full
+    260k-round PBKDF2 verification — a free CPU-exhaustion amplifier. Keying
+    on the hash means changing the password invalidates the entry naturally.
     """
     settings = get_settings()
     user = await get_by_username(db, settings.auth.default_username)
     if user is None:
         return False
-    return verify_password(settings.auth.default_password, user.password_hash)
+    cached = _default_pw_cache.get(user.password_hash)
+    if cached is None:
+        cached = verify_password(settings.auth.default_password, user.password_hash)
+        if len(_default_pw_cache) > 16:  # hashes only accumulate on changes
+            _default_pw_cache.clear()
+        _default_pw_cache[user.password_hash] = cached
+    return cached
 
 
 def _validate_username(username: str) -> str:

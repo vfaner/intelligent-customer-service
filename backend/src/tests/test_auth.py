@@ -248,6 +248,7 @@ PROTECTED = [
     ("GET", "/api/models/vector-db"),
     ("GET", "/api/admin/status"),
     ("GET", "/api/auth/me"),
+    ("GET", "/api/sessions"),
 ]
 
 # Public because a visitor on a third-party website calls them.
@@ -255,7 +256,6 @@ PUBLIC = [
     ("GET", "/health"),
     ("GET", "/api/config/public"),
     ("GET", "/api/auth/state"),
-    ("GET", "/api/sessions"),
 ]
 
 # Every route in the app, classified. The lists above are the ones actually
@@ -276,11 +276,16 @@ ROUTE_CLASSIFICATION = {
     ("POST", "/api/chat"): "public",
     ("POST", "/api/chat/stream"): "public",
     ("POST", "/api/sessions"): "public",
-    ("GET", "/api/sessions"): "public",
-    ("GET", "/api/sessions/{session_id}"): "public",
-    ("POST", "/api/sessions/{session_id}/close"): "public",
+    # Reading back the messages of a session id the caller already holds is a
+    # capability URL — that is what lets an embedded widget restore its own
+    # history without an account.
     ("GET", "/api/sessions/{session_id}/messages"): "public",
     # --- admin only ---------------------------------------------------------
+    # Enumerating/closing OTHER people's sessions used to be public, which let
+    # any anonymous visitor dump every customer conversation.
+    ("GET", "/api/sessions"): "protected",
+    ("GET", "/api/sessions/{session_id}"): "protected",
+    ("POST", "/api/sessions/{session_id}/close"): "protected",
     ("GET", "/api/auth/me"): "protected",
     ("PUT", "/api/auth/me"): "protected",
     ("PUT", "/api/auth/me/password"): "protected",
