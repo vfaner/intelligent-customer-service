@@ -14,7 +14,11 @@ readme = "README.md"
 authors = [{ name = "rgh" }]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+# 顶层包名就是 `src`（代码里全是 `from src.api import ...`、`uvicorn src.main:app`），
+# 所以从 backend 根目录扫描并只收 src*；where=["src"] 会把 api/core/... 打成顶层包，
+# 装出来的发行版无法以 `src.` 前缀导入。
+where = ["."]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -333,14 +333,14 @@ would only ever see a `401`.
 Multipart upload. Accepts `.txt`, `.docx`, `.xlsx`, `.pdf` (max 20 MB).
 
 ```bash
-curl -F "file=@samples/产品手册.txt" http://localhost:8000/api/documents/upload
+curl -F "file=@samples/sample_knowledge.txt" http://localhost:8000/api/documents/upload
 ```
 
 Response:
 ```json
 {
   "id": "a1b2c3...",
-  "filename": "产品手册.txt",
+  "filename": "sample_knowledge.txt",
   "file_size": 12345,
   "file_md5": "...",
   "mime_type": "text/plain",

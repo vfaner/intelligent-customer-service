@@ -114,7 +114,7 @@ intelligent-customer-service/
 │       ├── core/                 配置 · 数据库 · 厂商注册表 · 异常
 │       └── utils/                结构感知切分 · SSE · 哈希
 └── frontend/
-    ├── admin/index.html          管理后台（2,037 行，无框架）
+    ├── admin/index.html          管理后台（3,140 行，无框架）
     └── widget/customer-service.js 嵌入组件（786 行，零依赖）
 ```
 
@@ -261,17 +261,19 @@ ARK 有两个产品，域名相同但路径不同：
 
 还加了单元测试断言两者的 `(base_url, protocol)` 不冲突，防止以后又被合并回去。
 
-### 2.7 测试：37 + 17
+### 2.7 测试：266 + 32
+
+（数字随版本增长，命令不变。）
 
 ```bash
-cd backend && python -m pytest src/tests/ -q     # 37 passed
-cd frontend/widget && npm test                   # 17 项全部通过
+cd backend && python -m pytest src/tests/ -q     # 266 passed + 1 项需装可选依赖 chromadb
+cd frontend/widget && npm test                   # 32 项全部通过
 ```
 
-后端 37 个测试覆盖厂商注册表去重、切分策略、向量库工厂分发、回答策略路由、
+后端 260 多个测试覆盖厂商注册表去重、切分策略、向量库工厂分发、回答策略路由、
 版本号解析等。
 
-**前端那 17 项断言值得单独说明为什么必要。** `node -c` 只做语法检查，
+**前端那 32 项断言值得单独说明为什么必要。** `node -c` 只做语法检查，
 检不出「模板字符串被内部反引号截断」这类错误 —— 那会让整个组件在运行时抛错、
 完全不工作，但静态检查一片绿。
 

@@ -7,7 +7,7 @@
 
 ![status](https://img.shields.io/badge/status-可用-brightgreen)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-208%20backend%20%2B%2032%20widget%20%2B%2095%20admin-brightgreen)
+![tests](https://img.shields.io/badge/tests-267%20backend%20%2B%2032%20widget%20%2B%2098%20admin-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 **仓库地址**
@@ -368,16 +368,16 @@ intelligent-customer-service/
 │   ├── src/
 │   │   ├── main.py                   FastAPI app factory
 │   │   ├── api/                      admin · auth · chat · config · documents · models · sessions
-│   │   ├── services/                 document · rag · llm · embedding · session
+│   │   ├── services/                 document · rag · llm · embedding · session · reindex
 │   │   ├── adapters/                 base · openai · anthropic · factory
 │   │   ├── vector_store/             base · chroma · qdrant · milvus · factory
 │   │   ├── embeddings/               base · openai_compatible_embedder
 │   │   ├── parsers/                  txt(含 md) · docx · xlsx · pdf
 │   │   ├── prompts/system_prompts.py RAG 约束 + 自主回答提示词
 │   │   ├── models/                   SQLAlchemy ORM
-│   │   ├── core/                     config · database · registry · exceptions
+│   │   ├── core/                     config · database · registry · exceptions · auth · security · i18n · db_drivers
 │   │   ├── utils/                    text_splitter（结构感知）· sse · hash · obfuscation
-│   │   └── tests/                    208 个测试（含 73 项登录鉴权、20 项数据库驱动探测、10 项重建状态机）
+│   │   └── tests/                    267 个测试（登录鉴权、数据库驱动探测、重建状态机、流式加固、多语言等）
 │   ├── scripts/
 │   │   ├── init_db.py                建表（一键初始化已覆盖，一般不用手跑）
 │   │   ├── check_env.py              依赖/配置自检
@@ -395,7 +395,7 @@ intelligent-customer-service/
 │   │   ├── i18n-check.mjs            ← 词条覆盖检查（缺翻译即失败）
 │   │   ├── mark-i18n.py              ← 给 HTML 打 data-i18n 标记（可重跑）
 │   │   ├── selftest.mjs              ← 后台自检：语言切换 + 账号菜单 + 重建判定（58 项断言）
-│   │   └── login-selftest.mjs        ← 登录页自检（37 项断言）
+│   │   └── login-selftest.mjs        ← 登录页自检（40 项断言）
 │   └── widget/
 │       ├── customer-service.js       嵌入组件（零依赖）
 │       ├── selftest.mjs              ← 组件自检（32 项断言）
@@ -620,7 +620,7 @@ PostgreSQL 通信协议，TiDB / OceanBase 兼容 MySQL 协议，把主机端口
 > （面板 360×540 + 按钮位 76 + 边距 20）。给小了面板会被裁掉；
 > 不设 `background: transparent` 的话，多余区域会露出 iframe 底色，看起来像一块白板。
 
-`/embed` 支持 `api` · `title` · `accent` · `position` · `autoOpen` · `upload` · `bg` 参数。
+`/embed` 支持 `api` · `title` · `accent` · `position` · `avatar` · `welcome` · `lang` · `autoOpen` · `upload` · `bg` · `v`（缓存版本号）参数。
 
 ### 方式 3：小程序
 
@@ -689,7 +689,7 @@ CustomerService.setLang('ja') / getLang()
 强制指定语言：组件传 `lang: 'ja'`，`/embed` 或后台加 `?lang=ja`，接口传 `{"lang":"ja"}`。
 
 ```bash
-# 四处检查都必须绿：后端 208 项、组件 32 项、后台 58 + 登录页 37 项，加词条覆盖检查
+# 四处检查都必须绿：后端 266 项（另有 1 项需装 chromadb）、组件 32 项、后台 58 + 登录页 40 项，加词条覆盖检查
 cd backend && .venv/bin/pytest src/tests -q
 cd frontend/widget && npm i && node selftest.mjs
 cd frontend/admin && node selftest.mjs && node login-selftest.mjs && node i18n-check.mjs
@@ -960,7 +960,7 @@ location /api/chat/stream {
 ## 开发与测试
 
 ```bash
-# 后端：208 个测试（73 项登录鉴权、20 项缺驱动/信创连接串探测、10 项重建状态机）
+# 后端：267 个测试（登录鉴权、缺驱动/信创连接串探测、重建状态机、流式加固、多语言等）
 cd backend
 python -m pytest src/tests/ -q
 
@@ -973,7 +973,7 @@ npm test
 cd frontend/admin
 node selftest.mjs
 
-# 登录页自检：37 项断言，覆盖登录成功/失败、开放重定向防护、?api= 换后端
+# 登录页自检：40 项断言，覆盖登录成功/失败、开放重定向防护、?api= 换后端
 node login-selftest.mjs
 
 # 词条覆盖检查：界面上每条中文都必须有三种译文
@@ -983,7 +983,7 @@ node i18n-check.mjs
 cd backend && python scripts/check_env.py
 ```
 
-> 后端 208 个测试里有 207 个开箱即绿；剩下那一个在登录功能之前就是红的，
+> 后端 267 个测试里有 266 个开箱即绿；剩下那一个在登录功能之前就是红的，
 > 原因是可选依赖 `chromadb` 没装。
 
 > 组件自检值得一说：`node -c` 只做语法检查，检不出「模板字符串被内部反引号截断」

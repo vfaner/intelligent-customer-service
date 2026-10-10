@@ -8,7 +8,7 @@
 
 ![status](https://img.shields.io/badge/status-working-brightgreen)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-208%20backend%20%2B%2032%20widget%20%2B%2095%20admin-brightgreen)
+![tests](https://img.shields.io/badge/tests-267%20backend%20%2B%2032%20widget%20%2B%2098%20admin-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 **Repositories**
@@ -371,16 +371,16 @@ intelligent-customer-service/
 │   ├── src/
 │   │   ├── main.py                   FastAPI app factory
 │   │   ├── api/                      admin · auth · chat · config · documents · models · sessions
-│   │   ├── services/                 document · rag · llm · embedding · session
+│   │   ├── services/                 document · rag · llm · embedding · session · reindex
 │   │   ├── adapters/                 base · openai · anthropic · factory
 │   │   ├── vector_store/             base · chroma · qdrant · milvus · factory
 │   │   ├── embeddings/               base · openai_compatible_embedder
 │   │   ├── parsers/                  txt (incl. md) · docx · xlsx · pdf
 │   │   ├── prompts/system_prompts.py RAG constraints + fallback prompts
 │   │   ├── models/                   SQLAlchemy ORM
-│   │   ├── core/                     config · database · registry · exceptions
+│   │   ├── core/                     config · database · registry · exceptions · auth · security · i18n · db_drivers
 │   │   ├── utils/                    text_splitter (structure-aware) · sse · hash · obfuscation
-│   │   └── tests/                    208 tests (73 auth, 20 DB-driver detection, 10 rebuild state machine)
+│   │   └── tests/                    267 tests (auth, DB-driver detection, rebuild state machine, stream hardening, i18n…)
 │   ├── scripts/
 │   │   ├── init_db.py                create tables (one-click init covers this)
 │   │   ├── check_env.py              dependency/config self-check
@@ -398,7 +398,7 @@ intelligent-customer-service/
 │   │   ├── i18n-check.mjs            ← catalog coverage check (fails on any missing translation)
 │   │   ├── mark-i18n.py              ← adds data-i18n markers to the HTML (re-runnable)
 │   │   ├── selftest.mjs              ← console self-test: language switching + account menu + rebuild logic (58 assertions)
-│   │   └── login-selftest.mjs        ← sign-in page self-test (37 assertions)
+│   │   └── login-selftest.mjs        ← sign-in page self-test (40 assertions)
 │   ├── assets/                       icons, donate QR codes, screenshots
 │   └── widget/
 │       ├── customer-service.js       embeddable widget (zero deps)
@@ -649,8 +649,8 @@ an answer". Other corpora may need this tuned.
 > the panel; without `background: transparent` the unused area shows the
 > iframe's own colour as a visible block.
 
-`/embed` accepts `api` · `title` · `accent` · `position` · `autoOpen` ·
-`upload` · `bg`.
+`/embed` accepts `api` · `title` · `accent` · `position` · `avatar` ·
+`welcome` · `lang` · `autoOpen` · `upload` · `bg` · `v` (cache-buster).
 
 ### Option 3: mini-programs
 
@@ -733,7 +733,7 @@ To force a language: pass `lang: 'ja'` to the widget, add `?lang=ja` to `/embed`
 or the console, or send `{"lang":"ja"}` to the API.
 
 ```bash
-# All checks must be green: 208 backend, 32 widget, 58 admin + 37 login, plus catalog coverage
+# All checks must be green: 266 backend (+1 needs chromadb), 32 widget, 58 admin + 40 login, plus catalog coverage
 cd backend && .venv/bin/pytest src/tests -q
 cd frontend/widget && npm i && node selftest.mjs
 cd frontend/admin && node selftest.mjs && node login-selftest.mjs && node i18n-check.mjs
@@ -1033,7 +1033,7 @@ Python 3.14.5.
 ## Development
 
 ```bash
-# Backend: 208 tests (73 auth, 20 missing-driver/Xinchuang-URL detection, 10 rebuild state machine)
+# Backend: 267 tests (auth, missing-driver/Xinchuang-URL detection, rebuild state machine, stream hardening, i18n…)
 cd backend
 python -m pytest src/tests/ -q
 
@@ -1046,7 +1046,7 @@ npm test
 cd frontend/admin
 node selftest.mjs
 
-# Sign-in page: 37 assertions — login success/failure, open-redirect guard, ?api= retargeting
+# Sign-in page: 40 assertions — login success/failure, open-redirect guard, ?api= retargeting
 node login-selftest.mjs
 
 # Catalog coverage: every Chinese string in the UI must have all three translations
@@ -1056,7 +1056,7 @@ node i18n-check.mjs
 cd backend && python scripts/check_env.py
 ```
 
-> 207 of the 208 backend tests pass out of the box; the remaining failure
+> 266 of the 267 backend tests pass out of the box; the remaining failure
 > predates the login work and comes from the optional `chromadb` dependency not
 > being installed.
 
