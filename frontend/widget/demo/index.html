@@ -73,7 +73,9 @@
       apiUrl: 'http://localhost:8000',
       accent: '#0a66c2',
       position: 'right',
-      enableUpload: true,
+      // 演示页默认不开访客上传——公开页面让匿名访客传文件不是好主意；
+      // 需要演示上传时把它改成 true 即可。
+      enableUpload: false,
     });
   </script>
 </body>

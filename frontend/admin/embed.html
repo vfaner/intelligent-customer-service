@@ -111,8 +111,12 @@
   //   ?bg=f4f6f9   → #f4f6f9      ?bg=%23fff → #fff
   const bg = params.get('bg');
   if (bg) {
-    document.documentElement.style.background =
-      /^[0-9a-f]{3,8}$/i.test(bg) ? '#' + bg : bg;
+    // 只接受十六进制颜色（带不带 # 都行）；其它值直接忽略，而不是原样
+    // 塞进 style.background —— URL 参数是任意的访客输入。
+    const hex = bg.replace(/^#/, '');
+    if (/^[0-9a-f]{3,8}$/i.test(hex)) {
+      document.documentElement.style.background = '#' + hex;
+    }
   }
 
   const s = document.createElement('script');

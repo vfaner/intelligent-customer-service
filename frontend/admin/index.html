@@ -1341,6 +1341,9 @@ function setConn(state, label, detail) {
   connStatus.title = detail || label;
 }
 async function ping() {
+  // 后台标签页里跳过心跳——挂着的控制台不必每 15 秒打一次 /health；
+  // 标签页恢复可见后下一个 interval 周期自动继续。
+  if (document.hidden) return;
   setConn('checking', T('检查中…'));
   try {
     await API.request('/health');
@@ -1353,19 +1356,21 @@ ping();
 setInterval(ping, 15000);
 
 function $(id) { return document.getElementById(id); }
+// 每个提示元素记住自己的隐藏定时器：5 秒内连发两条时，旧定时器不会
+// 把新提示提前收走。
+const _alertTimers = new WeakMap();
 function showAlert(el, msg, type = 'success') {
   el.className = 'alert alert-' + type + ' show';
   el.textContent = msg;
-  setTimeout(() => el.classList.remove('show'), 5000);
+  clearTimeout(_alertTimers.get(el));
+  _alertTimers.set(el, setTimeout(() => el.classList.remove('show'), 5000));
 }
 function clearAlert(el) { el.classList.remove('show'); }
 
 /* ----------- First-run wizard ----------- */
-let LAST_STATUS = null;
 async function checkInit() {
   try {
     const s = await API.request('/api/admin/status');
-    LAST_STATUS = s;
     renderWizard(s);
     return s;
   } catch (e) {
@@ -2679,7 +2684,7 @@ async function loadDocs() {
     const pageDocs = docs.slice(docsPage * DOCS_PAGE_SIZE, (docsPage + 1) * DOCS_PAGE_SIZE);
     let html = T('<table><thead><tr><th>文件名</th><th>大小</th><th>分片数</th><th>状态</th><th>操作</th></tr></thead><tbody>');
     for (const d of pageDocs) {
-      const statusLabel = ({uploaded:T('已上传'), processing:T('处理中'), ready:T('就绪'), failed:T('失败')})[d.status] || d.status;
+      const statusLabel = ({uploaded:T('已上传'), processing:T('处理中'), ready:T('就绪'), failed:T('失败')})[d.status] || escapeHtml(d.status);
       const canProcess = (d.status === 'uploaded' || d.status === 'failed');
       // While ingesting, show real progress instead of a bare "处理中" that
       // gives no clue whether anything is happening.
@@ -2697,7 +2702,7 @@ async function loadDocs() {
         <td>${escapeHtml(d.filename)}<br><span style="color:#9ca3af;font-size:11px;">${escapeHtml(d.file_md5.substring(0,8))}</span></td>
         <td>${(d.file_size/1024).toFixed(1)} KB</td>
         <td>${chunkCell}</td>
-        <td><span class="status-pill status-${d.status}">${pill}</span></td>
+        <td><span class="status-pill status-${escapeHtml(d.status)}">${pill}</span></td>
         <td>
           ${canProcess ? `<button class="btn btn-secondary" onclick="processDoc('${d.id}')">${T('入库')}</button> ` : ''}
           <button class="btn btn-danger" onclick="deleteDoc('${d.id}')">${T('删除')}</button>
@@ -2815,10 +2820,16 @@ function copyEmbedCode() {
     position: 'right',
   });
 <\/script>`;
-  navigator.clipboard?.writeText(code).then(
-    () => alert(T('已复制到剪贴板')),
-    () => prompt(T('复制以下代码：'), code)
-  );
+  // navigator.clipboard 只在安全上下文存在——内网 http 部署时它是 undefined，
+  // 可选链会静默短路（连 prompt 兜底都不执行），所以显式分支。
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code).then(
+      () => alert(T('已复制到剪贴板')),
+      () => prompt(T('复制以下代码：'), code)
+    );
+  } else {
+    prompt(T('复制以下代码：'), code);
+  }
 }
 
 function escapeHtml(s) {
@@ -3013,14 +3024,11 @@ $('btnDonate').addEventListener('click', () => {
    后端只做「比对版本 + 返回更新说明」，不会自动改动代码。
    自动 git pull 会覆盖本地未提交的修改，还可能因依赖变更导致服务起不来，
    不适合放在一个按钮后面，所以这里给出命令让用户自己决定何时执行。 */
-let updateInfo = null;
-
 async function checkUpdate({ silent = false } = {}) {
   const btn = $('btnCheckUpdate');
   if (!silent) { btn.disabled = true; btn.classList.add('spin'); }
   try {
     const r = await API.request('/api/admin/version');
-    updateInfo = r;
     // 有新版就在按钮上点红点，无论是否静默检查
     $('updateBadge').hidden = !r.has_update;
     if (r.repo) {
@@ -3091,10 +3099,15 @@ cd backend &amp;&amp; pip install -r requirements.txt
   if (copyBtn) {
     copyBtn.addEventListener('click', () => {
       const cmd = box.querySelector('.upd-cmd')?.textContent || '';
-      navigator.clipboard?.writeText(cmd).then(
-        () => { copyBtn.textContent = T('✓ 已复制'); setTimeout(() => copyBtn.textContent = T('📋 复制命令'), 1800); },
-        () => prompt(T('复制以下命令：'), cmd)
-      );
+      // 同上：内网 http 下 navigator.clipboard 不存在，可选链会静默短路。
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(cmd).then(
+          () => { copyBtn.textContent = T('✓ 已复制'); setTimeout(() => copyBtn.textContent = T('📋 复制命令'), 1800); },
+          () => prompt(T('复制以下命令：'), cmd)
+        );
+      } else {
+        prompt(T('复制以下命令：'), cmd);
+      }
     });
   }
   openModal('updateMask');

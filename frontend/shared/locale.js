@@ -197,12 +197,6 @@
     return ok;
   }
 
-  function clear() {
-    try {
-      if (root.localStorage) root.localStorage.removeItem(STORAGE_KEY);
-    } catch (_) {}
-  }
-
   /** 从 URL 查询串取 ?lang=（供 embed / demo 页透传）。 */
   function fromUrl(search) {
     var qs = search !== undefined ? search
@@ -254,7 +248,6 @@
     detect: detect,
     read: read,
     save: save,
-    clear: clear,
     fromUrl: fromUrl,
     applyHtmlLang: applyHtmlLang
   };
