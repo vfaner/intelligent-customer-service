@@ -46,6 +46,7 @@ from src.core.exceptions import install_exception_handlers
 from src.core import security
 from src.core.security import TokenError, decode_token
 from src.models.base import Base
+from src.services import runtime
 from src.services.auth_service import ensure_default_admin
 
 log = logging.getLogger(__name__)
@@ -259,6 +260,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Close the shared runtime singletons (LLM provider, embedder, vector
+    # store) before the engine goes away, so their sockets don't get dropped
+    # at interpreter exit.
+    await runtime.close_shared()
     await dispose_engine()
 
 

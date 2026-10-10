@@ -5,6 +5,7 @@ takes effect immediately, matching the behaviour of ``LLMService``.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ from ..embeddings.base import BaseEmbedder
 from ..embeddings.openai_compatible_embedder import OpenAICompatibleEmbedder
 from ..models.config import CSConfig
 from ..utils.obfuscation import deobfuscate
+from . import runtime
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +74,12 @@ async def load_embedding_config(settings: Optional[Settings] = None) -> Dict[str
 
 
 _WHERE_TO_FIX = "请在管理后台「模型配置 → 🧬 向量模型」中填写，填完点「🔌 测试并探测维度」验证。"
+
+# 429 retry budget for the INTERACTIVE path (embedding a chat question). The
+# embedder's own default (600s) is tuned for background ingestion, where
+# riding out an exhausted vendor quota beats failing; a waiting human must
+# get an actionable error in seconds instead.
+QUERY_RATE_LIMIT_BUDGET = 15.0
 
 
 def embedding_signature(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,23 +167,51 @@ def build_embedder(settings: Optional[Settings] = None) -> BaseEmbedder:
 
 
 class EmbeddingService:
-    """Builds the embedder from DB config (falling back to .env) and caches it."""
+    """Resolves the embedder from DB config (falling back to .env) and shares it.
+
+    The embedder — and its httpx connection pool — is a process-wide singleton
+    keyed by the resolved config (see ``services.runtime``). Console edits
+    still take effect immediately: any change to the resolved fields builds a
+    fresh embedder on the next call, and the old one is retired.
+    """
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings
         self._embedder: BaseEmbedder | None = None
 
+    @staticmethod
+    def _fingerprint(cfg: Dict[str, Any]) -> str:
+        # The API key enters the fingerprint hashed — the string stays in
+        # memory only, but there's no reason to keep a raw credential in it.
+        key_hash = hashlib.sha256(
+            str(cfg.get("api_key") or "").encode("utf-8")
+        ).hexdigest()[:16]
+        ident = "|".join(
+            str(cfg.get(k) or "") for k in ("provider", "base_url", "model", "dim")
+        )
+        return f"{ident}|{key_hash}"
+
     async def get(self) -> BaseEmbedder:
-        if self._embedder is None:
-            cfg = await load_embedding_config(self._settings)
-            self._embedder = build_embedder_from(cfg)
+        cfg = await load_embedding_config(self._settings)
+        fp = self._fingerprint(cfg)
+
+        async def _build() -> BaseEmbedder:
+            return build_embedder_from(cfg)
+
+        self._embedder = await runtime.get_shared("embedder", fp, _build)
         return self._embedder
 
-    async def embed(self, texts: List[str]) -> List[List[float]]:
+    async def embed(
+        self, texts: List[str], *, rate_limit_budget: Optional[float] = None
+    ) -> List[List[float]]:
         embedder = await self.get()
-        return await embedder.embed(texts)
+        return await embedder.embed(texts, rate_limit_budget=rate_limit_budget)
 
     async def aclose(self) -> None:
-        if self._embedder is not None and hasattr(self._embedder, "aclose"):
-            await self._embedder.aclose()  # type: ignore[attr-defined]
+        """Release this service's reference; the shared embedder stays open.
+
+        Closing it here would defeat the connection reuse and could cut a
+        concurrent request's call mid-flight. ``runtime.close_shared()``
+        closes it at app shutdown instead.
+        """
         self._embedder = None

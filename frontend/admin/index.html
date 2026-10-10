@@ -2600,20 +2600,33 @@ async function handleUpload(file) {
     a.className = 'alert alert-success show';
     setTimeout(async () => {
       a.textContent = T(`⏳ 正在解析 + embedding + 入库…`);
+      let queued = false;
       try {
+        // 202: ingestion runs in the background now. The response carries the
+        // current row — normally status=processing — and the poller below
+        // tracks chunks_done/chunks_total in the table.
         const pr = await API.request('/api/documents/process', { method: 'POST', body: { document_id: data.id } });
         if (pr.status === 'ready') {
+          // Duplicate upload of an already-ingested document — nothing to do.
           a.textContent = fmt(T('✅ 入库成功：{0} 个片段'), pr.chunk_count);
           a.className = 'alert alert-success show';
-        } else {
+        } else if (pr.status === 'failed') {
           a.textContent = fmt(T('⚠️ 入库失败：{0}'), pr.error_message || T('未知错误'));
           a.className = 'alert alert-error show';
+        } else {
+          a.textContent = fmt(T('⏳ {0} 已开始后台入库，进度见下方列表…'), data.filename);
+          a.className = 'alert alert-info show';
+          queued = true;
         }
       } catch (e) {
         a.textContent = fmt(T('⚠️ 入库失败：{0}'), e.message);
         a.className = 'alert alert-error show';
       }
       loadDocs();
+      // Restart the poller AFTER loadDocs: its auto-stop could have run while
+      // the row was still flipping to processing, and a queued ingest must
+      // keep the table refreshing until it finishes.
+      if (queued) startDocsPolling();
       checkInit();
     }, 500);
   } catch (e) {

@@ -1,8 +1,9 @@
 """Document upload / process / list / delete API."""
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -16,6 +17,10 @@ from ..services.document_service import DocumentService
 
 log = logging.getLogger(__name__)
 router = APIRouter()
+
+# In-flight background ingestions: document_id -> task. Guards double-submit
+# (double-click, two admins) the same way the reindex job guard does.
+_ingest_tasks: Dict[str, asyncio.Task] = {}
 
 
 # ----- Schemas ---------------------------------------------------------
@@ -65,13 +70,70 @@ async def upload_document(file: UploadFile = File(...)) -> UploadOut:
     return UploadOut(**info)
 
 
-@router.post("/process", response_model=DocumentOut, summary="Chunk + embed + index a document")
+async def _run_ingest(
+    svc: DocumentService,
+    doc_id: str,
+    chunk_size: Optional[int],
+    chunk_overlap: Optional[int],
+    started: asyncio.Event,
+) -> None:
+    try:
+        await svc.process_document(
+            doc_id,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            on_started=started,
+        )
+    except Exception as e:
+        # process_document persists `failed` + the reason for every expected
+        # error; this last-resort net keeps an unexpected crash from dying
+        # silently inside a detached task.
+        log.warning("background ingest of %s raised: %s", doc_id, str(e)[:300])
+    finally:
+        started.set()
+        if _ingest_tasks.get(doc_id) is asyncio.current_task():
+            _ingest_tasks.pop(doc_id, None)
+
+
+@router.post(
+    "/process",
+    status_code=202,
+    response_model=DocumentOut,
+    summary="Queue chunk + embed + index for a document (runs in background)",
+)
 async def process_document(body: ProcessIn) -> DocumentOut:
+    """Start ingestion in the background and return 202 right away.
+
+    A large document takes minutes (parsing, embedding-vendor quota); holding
+    the HTTP request open that long looked like a hang and died on proxy
+    timeouts. The response carries the current row — normally
+    ``status="processing"`` — and the console polls ``/list`` for
+    ``chunks_done``/``chunks_total`` progress.
+    """
     settings = get_settings()
     svc = DocumentService(settings)
-    info = await svc.process_document(
-        body.document_id, chunk_size=body.chunk_size, chunk_overlap=body.chunk_overlap
+    doc_id = body.document_id
+
+    running = _ingest_tasks.get(doc_id)
+    if running is not None and not running.done():
+        raise DocumentError("该文档正在后台入库中，请在列表查看进度")
+
+    started = asyncio.Event()
+    task = asyncio.create_task(
+        _run_ingest(svc, doc_id, body.chunk_size, body.chunk_overlap, started)
     )
+    _ingest_tasks[doc_id] = task
+    try:
+        # Wait until the row has flipped to `processing` (or the call returned
+        # early) so the 202 body reports a truthful status. Bounded: if phase 1
+        # is somehow slow, the client still gets the queued row.
+        await asyncio.wait_for(started.wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        log.warning("ingest of %s had not started after 5s; returning row as-is", doc_id)
+
+    info = await svc.fetch_document(doc_id)
+    if info is None:
+        raise NotFoundError(f"Document not found: {doc_id}")
     return DocumentOut(**info)
 
 
@@ -163,18 +225,22 @@ async def split_preview(body: SplitPreviewIn) -> dict:
             if doc is None:
                 raise NotFoundError(f"Document not found: {body.document_id}")
             file_path, parser_code, filename = doc.file_path, doc.parser_code or "txt", doc.filename
-        text = get_parser_by_code(parser_code).parse(file_path)
+        # Interactive endpoint, but parsing a big PDF still blocks for seconds
+        # — run it off the event loop like the ingest path does.
+        text = await asyncio.to_thread(get_parser_by_code(parser_code).parse, file_path)
         source = filename
 
     if not text.strip():
         raise DocumentError("没有可切分的内容：请粘贴文本或选择一个已上传的文档")
 
-    chunks = split_text(
-        text,
-        chunk_size=opts["chunk_size"],
-        chunk_overlap=opts["chunk_overlap"],
-        strategy=strategy,
-        prefix_heading=prefix,
+    chunks = await asyncio.to_thread(
+        lambda: split_text(
+            text,
+            chunk_size=opts["chunk_size"],
+            chunk_overlap=opts["chunk_overlap"],
+            strategy=strategy,
+            prefix_heading=prefix,
+        )
     )
     sizes = [len(c.text) for c in chunks] or [0]
     return {

@@ -211,17 +211,20 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
             )
         return vectors
 
-    async def embed(self, texts: List[str]) -> List[List[float]]:
+    async def embed(
+        self, texts: List[str], *, rate_limit_budget: float | None = None
+    ) -> List[List[float]]:
         cleaned = [(t or "").strip() for t in texts]
         if not cleaned:
             return []
+        budget = self.RATE_LIMIT_BUDGET if rate_limit_budget is None else float(rate_limit_budget)
 
         # Probe with one batch first: it settles the vendor's batch limit (and
         # surfaces auth/model errors) before we fan out and multiply the
         # failure. After that, run batches concurrently.
         out: List[List[float]] = []
         head = cleaned[: self.batch_size]
-        out.extend(await self._embed_slice_serial(head))
+        out.extend(await self._embed_slice_serial(head, budget))
         rest = cleaned[len(head):]
         if not rest:
             if self.dim <= 0 and out:
@@ -233,7 +236,7 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
 
         async def run(batch: List[str]) -> List[List[float]]:
             async with sem:
-                return await self._embed_slice_serial(batch)
+                return await self._embed_slice_serial(batch, budget)
 
         # gather preserves order, so vectors still line up with `texts`.
         results = await asyncio.gather(*(run(b) for b in batches))
@@ -244,12 +247,19 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
             self.dim = len(out[0])
         return out
 
-    async def _embed_slice_serial(self, batch: List[str]) -> List[List[float]]:
+    async def _embed_slice_serial(
+        self, batch: List[str], budget: float | None = None
+    ) -> List[List[float]]:
         """Embed one batch, handling batch-too-large and rate limiting.
 
         On 429 this both waits and raises the global pace, so sibling requests
         slow down too rather than each discovering the limit independently.
+
+        ``budget`` caps the total 429 wait for this call; ``None`` falls back
+        to the class default (the long ingestion budget).
         """
+        if budget is None:
+            budget = self.RATE_LIMIT_BUDGET
         rate_hits = 0
         rl_started: float | None = None      # when this batch first hit a 429
         while True:
@@ -258,7 +268,9 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
             if len(batch) > self.batch_size:
                 out: List[List[float]] = []
                 for i in range(0, len(batch), self.batch_size):
-                    out.extend(await self._embed_slice_serial(batch[i : i + self.batch_size]))
+                    out.extend(
+                        await self._embed_slice_serial(batch[i : i + self.batch_size], budget)
+                    )
                 return out
             try:
                 return await self._call_once(batch)
@@ -283,7 +295,7 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
                     rl_started = time.monotonic()
                     waited = 0.0
 
-                if waited >= self.RATE_LIMIT_BUDGET:
+                if waited >= budget:
                     raise EmbeddingError(
                         f"向量模型接口持续返回 429，已等待 {waited / 60:.1f} 分钟仍未恢复"
                         f"（重试 {rate_hits} 次）。可能是账号配额已用尽。"
@@ -301,7 +313,7 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
                     log.info(
                         "Embedding rate-limited (%d 次, 已等 %.0fs/%.0fs 预算), "
                         "%.0fs 后重试 batch=%d",
-                        rate_hits, waited, self.RATE_LIMIT_BUDGET, wait, len(batch),
+                        rate_hits, waited, budget, wait, len(batch),
                     )
                 await asyncio.sleep(wait)
                 continue

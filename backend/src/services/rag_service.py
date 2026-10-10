@@ -28,7 +28,7 @@ from ..prompts import (
     output_lang_rule,
 )
 from ..vector_store.base import BaseVectorStore, VectorHit
-from .embedding_service import EmbeddingService
+from .embedding_service import QUERY_RATE_LIMIT_BUDGET, EmbeddingService
 from .llm_service import LLMService
 
 log = logging.getLogger(__name__)
@@ -68,6 +68,10 @@ class RAGService:
     ) -> None:
         self._settings = settings
         self._vector_store = vector_store
+        # An injected store belongs to the caller (tests); the lazily built one
+        # is the shared singleton from services.runtime and must never be
+        # closed per request.
+        self._injected_store = vector_store is not None
         self._embedder = embedder or EmbeddingService(settings)
         self._llm = llm or LLMService(settings)
 
@@ -75,10 +79,10 @@ class RAGService:
     def settings(self) -> Settings:
         return self._settings or get_settings()
 
-    def vector_store(self) -> BaseVectorStore:
+    async def vector_store(self) -> BaseVectorStore:
         if self._vector_store is None:
-            from ..vector_store.factory import build_vector_store
-            self._vector_store = build_vector_store(self._settings)
+            from ..vector_store.factory import get_shared_vector_store
+            self._vector_store = await get_shared_vector_store(self._settings)
         return self._vector_store
 
     # --- runtime config ------------------------------------------------
@@ -120,11 +124,14 @@ class RAGService:
 
     # --- pipeline -----------------------------------------------------
     async def _retrieve(self, question: str, cfg: Dict[str, Any]) -> List[VectorHit]:
-        vecs = await self._embedder.embed([question])
+        # Interactive path: a 429-hammered embedding vendor must surface an
+        # error in seconds, not ride out the multi-minute ingestion budget.
+        vecs = await self._embedder.embed([question], rate_limit_budget=QUERY_RATE_LIMIT_BUDGET)
         if not vecs:
             return []
+        store = await self.vector_store()
         try:
-            hits = await self.vector_store().query(
+            hits = await store.query(
                 vecs[0],
                 top_k=max(1, int(cfg["top_k"])),
                 threshold=float(cfg["similarity_threshold"]),
@@ -255,6 +262,11 @@ class RAGService:
         yield "", sources  # terminator carrying sources
 
     async def aclose(self) -> None:
+        # EmbeddingService.aclose is a reference drop (the embedder is shared).
         await self._embedder.aclose()
-        if self._vector_store is not None:
+        # The shared vector store is closed by runtime.close_shared() at app
+        # shutdown — closing it per request would break connection reuse and
+        # could cut a concurrent retrieval. Only caller-injected stores (tests)
+        # are closed here, preserving the old ownership semantics.
+        if self._vector_store is not None and self._injected_store:
             await self._vector_store.aclose()

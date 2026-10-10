@@ -351,7 +351,18 @@ Response:
 ```
 
 ### `POST /api/documents/process`
-Triggers chunking + embedding + indexing.
+Queues chunking + embedding + indexing as a **background job** and returns
+`202 Accepted` immediately (a large document takes minutes; the old
+synchronous behaviour died on proxy/browser timeouts). The response body is
+the current document row — normally `"status": "processing"`. Poll
+`GET /api/documents/list` for progress: `chunks_done` / `chunks_total` update
+while the job runs, and `status` ends as `ready` or `failed` (with
+`error_message`).
+
+Submitting the same document while its job is still running returns `400`
+(`document_error`). If the server restarts mid-ingest, the row is marked
+`failed` after 15 stale minutes and a re-submit **resumes** from the last
+indexed chunk instead of re-embedding (and re-paying for) it.
 
 ```bash
 curl -X POST http://localhost:8000/api/documents/process \

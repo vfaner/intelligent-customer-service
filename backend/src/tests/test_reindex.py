@@ -87,7 +87,9 @@ class FakeEmbedder:
     def __init__(self, settings=None) -> None:
         pass
 
-    async def embed(self, texts: List[str]) -> List[List[float]]:
+    async def embed(
+        self, texts: List[str], *, rate_limit_budget: float | None = None
+    ) -> List[List[float]]:
         return [[0.01] * PROBE_DIM for _ in texts]
 
     async def aclose(self) -> None:
@@ -141,11 +143,26 @@ async def reindex_env(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(reindex_service, "build_vector_store", fake_factory)
 
+    async def fake_shared(settings=None, *, embedding_dimension_override=None):
+        # The diagnostics/ingest path (status_payload, open_vector_store). A
+        # real dimension-locked backend reports the collection's ACTUAL dim
+        # no matter what the client was built with — only reset() recreates
+        # the collection, which fake_factory models. So: no mutation here.
+        return fake_store
+
+    monkeypatch.setattr(
+        "src.services.document_service.get_shared_vector_store", fake_shared
+    )
+
     # Per-test ingest script: filename -> ("ok" | "transient" | "fatal" | "hold")
     script: Dict[str, str] = {"mode": "ok"}
     attempts: Dict[str, int] = {}
 
-    async def fake_process(self, document_id: str, chunk_size=None, chunk_overlap=None):
+    async def fake_process(
+        self, document_id: str, chunk_size=None, chunk_overlap=None, on_started=None
+    ):
+        if on_started is not None:
+            on_started.set()
         async with session_scope() as session:
             doc = await session.get(Document, document_id)
             mode = script.get(doc.filename, "ok")

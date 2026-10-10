@@ -1,6 +1,7 @@
 """Document service: upload → parse → chunk → embed → store."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -11,11 +12,10 @@ from ..core.database import session_scope
 from ..core.exceptions import DocumentError
 from ..core.registry import parser_for_filename
 from ..models.document import Document
-from ..parsers import get_parser
 from ..utils.hash import md5_file
 from ..utils.text_splitter import TextChunk, split_text
 from ..vector_store.base import BaseVectorStore, ChunkRecord
-from ..vector_store.factory import build_vector_store
+from ..vector_store.factory import get_shared_vector_store
 from .embedding_service import EmbeddingService
 
 log = logging.getLogger(__name__)
@@ -75,13 +75,8 @@ class DocumentService:
     def settings(self) -> Settings:
         return self._settings or get_settings()
 
-    def vector_store(self) -> BaseVectorStore:
-        if self._vector_store is None:
-            self._vector_store = build_vector_store(self._settings)
-        return self._vector_store
-
     async def open_vector_store(self) -> BaseVectorStore:
-        """Like ``vector_store()`` but honours the DB-saved dimension.
+        """The shared vector store, honouring the DB-saved dimension.
 
         The console (and the rebuild pipeline) persist the probed embedding
         dimension into ``CSConfig.vector_db.embedding_dimension``; qdrant /
@@ -89,6 +84,11 @@ class DocumentService:
         a store built from the .env value would upsert wrong-dim vectors into
         the recreated collection. Chroma ignores the override (its dimension is
         inferred from the first insert).
+
+        The store itself is a process-wide singleton keyed by its config
+        (``vector_store.factory.get_shared_vector_store``) — construction does
+        blocking network/disk I/O that used to run per request on the event
+        loop.
         """
         if self._vector_store is not None:
             return self._vector_store
@@ -107,7 +107,7 @@ class DocumentService:
                     override = int(vec["embedding_dimension"])
         except Exception as e:
             log.debug("could not read vector dim from DB, using .env: %s", e)
-        self._vector_store = build_vector_store(
+        self._vector_store = await get_shared_vector_store(
             self._settings, embedding_dimension_override=override
         )
         return self._vector_store
@@ -139,8 +139,10 @@ class DocumentService:
         doc_id = uuid.uuid4().hex
         safe_name = Path(filename).name
         stored_path = upload_dir / f"{doc_id}_{safe_name}"
-        stored_path.write_bytes(content)
-        file_md5 = md5_file(stored_path)
+        # Up to MAX_UPLOAD_MB of disk I/O + hashing — keep the event loop free
+        # so chat streams don't stutter while a file lands.
+        await asyncio.to_thread(stored_path.write_bytes, content)
+        file_md5 = await asyncio.to_thread(md5_file, stored_path)
 
         from sqlalchemy import select
 
@@ -212,13 +214,32 @@ class DocumentService:
         return opts
 
     # ---- processing -------------------------------------------------
+    async def fetch_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Current row as a dict, or None. Used by the API to answer right
+        after a background ingest is queued."""
+        from sqlalchemy import select
+
+        async with session_scope() as session:
+            doc = (
+                await session.execute(select(Document).where(Document.id == document_id))
+            ).scalar_one_or_none()
+            return doc.to_dict() if doc is not None else None
+
     async def process_document(
         self,
         document_id: str,
         *,
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
+        on_started: Optional[asyncio.Event] = None,
     ) -> Dict[str, Any]:
+        """Parse → chunk → embed → index one document.
+
+        ``on_started`` is set as soon as the row has been flipped to
+        ``processing`` (or the call returned early), letting the API answer
+        a background-ingest request with a truthful status without waiting
+        for the (minutes-long) ingestion itself.
+        """
         opts = await self._rag_options(chunk_size, chunk_overlap)
         cs = opts["chunk_size"]
         co = opts["chunk_overlap"]
@@ -233,6 +254,8 @@ class DocumentService:
             if doc is None:
                 raise DocumentError(f"Document not found: {document_id}")
             if doc.status == "ready":
+                if on_started is not None:
+                    on_started.set()
                 return doc.to_dict()
 
             # Guard against two workers ingesting the same document (the admin
@@ -279,22 +302,32 @@ class DocumentService:
                 "parser_code": doc.parser_code or "txt",
             }
 
+        # The row is now `processing` — the queued API response can report a
+        # truthful status while ingestion continues in the background.
+        if on_started is not None:
+            on_started.set()
+
         # Phase 2: parse + chunk + embed + index (no DB access).
         new_status = "ready"
         err_msg: Optional[str] = None
         count = 0
         try:
             parser = get_parser_by_code_safe(payload["parser_code"])
-            text = parser.parse(payload["file_path"])
+            # Parsing (PDF especially) and chunking are CPU/blocking-disk work
+            # that can take seconds — off the event loop, or every concurrent
+            # chat stream freezes while a document ingests.
+            text = await asyncio.to_thread(parser.parse, payload["file_path"])
             if not text or not text.strip():
                 raise DocumentError("Parsed text is empty")
 
-            chunks: List[TextChunk] = split_text(
-                text,
-                chunk_size=cs,
-                chunk_overlap=co,
-                strategy=opts["strategy"],
-                prefix_heading=opts["prefix_heading"],
+            chunks: List[TextChunk] = await asyncio.to_thread(
+                lambda: split_text(
+                    text,
+                    chunk_size=cs,
+                    chunk_overlap=co,
+                    strategy=opts["strategy"],
+                    prefix_heading=opts["prefix_heading"],
+                )
             )
             if not chunks:
                 raise DocumentError("No chunks produced")
@@ -446,7 +479,8 @@ class DocumentService:
             await session.delete(doc)
             await session.flush()
         try:
-            await self.vector_store().delete_document(document_id)
+            store = await self.open_vector_store()
+            await store.delete_document(document_id)
         except Exception as e:
             log.warning("vector delete failed for %s: %s", document_id, e)
         try:

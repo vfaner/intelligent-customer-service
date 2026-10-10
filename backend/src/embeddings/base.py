@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 
 class EmbeddingError(Exception):
@@ -16,5 +16,14 @@ class BaseEmbedder(ABC):
     model: str = ""
 
     @abstractmethod
-    async def embed(self, texts: List[str]) -> List[List[float]]:
-        """Return one vector per input text. Order is preserved."""
+    async def embed(
+        self, texts: List[str], *, rate_limit_budget: Optional[float] = None
+    ) -> List[List[float]]:
+        """Return one vector per input text. Order is preserved.
+
+        ``rate_limit_budget`` caps how long 429 retries may burn on THIS call
+        (seconds); ``None`` keeps the implementation default. Interactive
+        query paths pass a small budget so a quota-exhausted vendor surfaces
+        an error in seconds instead of holding the user's question hostage
+        for the multi-minute ingestion budget.
+        """

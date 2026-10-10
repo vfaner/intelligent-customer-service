@@ -42,6 +42,7 @@ from ..core.database import session_scope
 from ..models.config import CSConfig
 from ..models.document import Document
 from ..vector_store.factory import build_vector_store
+from . import runtime
 from .document_service import DocumentService
 from .embedding_service import EmbeddingService, embedding_signature, load_embedding_config
 
@@ -260,11 +261,17 @@ async def _run(settings, *, cooldown: float, max_rounds: int) -> None:
         if not repair_mode:
             # --- reset: drop the incompatible collection ------------------
             _STATE["phase"] = "reset"
-            store = build_vector_store(settings, embedding_dimension_override=dim)
+            # Ephemeral store on purpose (blocking construction off the loop),
+            # and any *cached* store handle now points at a dropped collection
+            # — evict it so the next open rebuilds against the fresh one.
+            store = await asyncio.to_thread(
+                build_vector_store, settings, embedding_dimension_override=dim
+            )
             try:
                 await store.reset()
             finally:
                 await store.aclose()
+            runtime.invalidate("vector_store")
             await _reset_all_documents()
             # Stamp now: everything still in the collection is new-model from
             # this point on, which makes an interrupted run safely resumable.
@@ -375,19 +382,17 @@ async def status_payload(settings=None) -> Dict[str, Any]:
 
     store_dim = None
     vector_count = None
-    store = None
     try:
-        store = build_vector_store(settings)
+        # Shared singleton, resolved exactly like the ingest path (DB-saved
+        # dimension over .env): this endpoint is polled every few seconds
+        # while a rebuild runs, and each poll used to open a whole new store
+        # client (Chroma re-loading its DB / Qdrant re-checking the
+        # collection). Not closed here — runtime.close_shared() owns it.
+        store = await svc.open_vector_store()
         vector_count = await store.count()
         store_dim = await store.dimension()
     except Exception:
         pass
-    finally:
-        if store is not None:
-            try:
-                await store.aclose()
-            except Exception:
-                pass
     out["vector_count"] = vector_count
     out["store_dimension"] = store_dim
     out["needs_rebuild"] = (
