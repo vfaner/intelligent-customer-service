@@ -179,6 +179,11 @@ const check = (name, pass) => results.push([name, !!pass]);
     // 协议相对 URL：浏览器会跳到 evil.com，虽然它以 / 开头
     ['//evil.com/',                '/admin/'],
     ['//evil.com',                 '/admin/'],
+    // 反斜杠会被浏览器规范化成 /，'/\evil.com' 等价于 '//evil.com'
+    ['/\\evil.com/',               '/admin/'],
+    // 浏览器还会从 URL 里剥掉制表/换行符，剥完可能拼出 '//host'
+    ['/\t//evil.com',              '/admin/'],
+    ['/\n/evil.com',               '/admin/'],
     ['https://evil.com/',          '/admin/'],
     ['http://evil.com/',           '/admin/'],
     ['javascript:alert(1)',        '/admin/'],

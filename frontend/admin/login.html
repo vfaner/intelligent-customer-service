@@ -230,7 +230,14 @@ var USER_KEY = 'cs_admin_user';
  */
 function safeNext() {
   var next = params.get('next') || '';
-  if (!next || next.charAt(0) !== '/' || next.charAt(1) === '/') return '/admin/';
+  // Reject anything that isn't a plain same-origin path:
+  //  - must start with a single '/' ('//host' is protocol-relative → off-site);
+  //  - '/\host' navigates like '//host' because browsers normalize '\' to '/';
+  //  - browsers also strip tabs/newlines from URLs, so '/\t/host' can collapse
+  //    into '//host' after navigation — any control char or backslash anywhere
+  //    in the value is treated as hostile.
+  if (!next || next.charAt(0) !== '/' || next.charAt(1) === '/'
+      || /[\\\r\n\t]/.test(next)) return '/admin/';
   return next;
 }
 

@@ -129,7 +129,12 @@
   /**
    * 纯函数解析器 —— 所有输入显式传入，便于测试。
    *
-   * 优先级：手动选择 > 显式指定 > 时区(地区) > 浏览器语言 > 英语
+   * 优先级：显式指定 > 手动选择 > 时区(地区) > 浏览器语言 > 英语
+   *
+   * 显式指定（URL ?lang= / init({lang})）表达的是「这一次访问」的意图，
+   * 压过 localStorage 里的手动选择：存储在同源下是共享的，A 页面的选择
+   * 不应悄悄盖掉 B 页面明确的指定。没有显式指定时，手动选择仍然优先于
+   * 一切自动检测。
    *
    * @param {object} input
    * @param {string} [input.stored]      localStorage 里的手动选择
@@ -141,11 +146,11 @@
   function resolve(input) {
     var opts = input || {};
 
-    var stored = normalize(opts.stored);
-    if (stored) return { locale: stored, source: 'stored' };
-
     var explicit = normalize(opts.explicit);
     if (explicit) return { locale: explicit, source: 'explicit' };
+
+    var stored = normalize(opts.stored);
+    if (stored) return { locale: stored, source: 'stored' };
 
     var byTz = fromTimeZone(opts.timeZone);
     if (byTz) return { locale: byTz, source: 'timezone' };

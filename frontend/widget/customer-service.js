@@ -94,8 +94,14 @@
   }
 
   /**
-   * Pure resolver. Priority: manual choice > explicit option > timezone
+   * Pure resolver. Priority: explicit option > manual choice > timezone
    * (region) > browser language > English.
+   *
+   * Explicit (init({lang}) / URL ?lang=) states the intent for THIS page
+   * view, so it beats the stored manual choice: localStorage is shared by
+   * every page on the origin, and a choice made on one page must not
+   * silently override another page's explicit request. With no explicit
+   * value the manual choice still wins over auto-detection.
    *
    * Timezone wins over language because the requirement is "pick by region":
    * a machine in Taipei running an English OS is still Asia/Taipei and should
@@ -103,10 +109,10 @@
    */
   function resolveLang(input) {
     var o = input || {};
-    var stored = normalizeLang(o.stored);
-    if (stored) return { locale: stored, source: 'stored' };
     var explicit = normalizeLang(o.explicit);
     if (explicit) return { locale: explicit, source: 'explicit' };
+    var stored = normalizeLang(o.stored);
+    if (stored) return { locale: stored, source: 'stored' };
     var byTz = o.timeZone ? (TZ_TO_LOCALE[o.timeZone] || null) : null;
     if (byTz) return { locale: byTz, source: 'timezone' };
     var byLang = langFromLanguages(o.languages);
@@ -775,9 +781,12 @@
     // `arr[0]` (code) and `2587.html[1]` (citation) are genuinely ambiguous.
     // We optimise for citations, which appear on most answers, over array
     // indexing, which is rare in customer-service replies.
+    // The CJK-anchored rule uses a capture group instead of a lookbehind
+    // (?<=…): lookbehind is a syntax ERROR in Safari < 16.4, and one bad
+    // regex would kill renderAnswer entirely on those browsers.
     const text = raw
       .replace(/(?:[[［【]\s*\d+\s*[\]］】])+(?=\s|$|[，。；、！？）)])/g, '')
-      .replace(/(?<=[一-鿿”"』」）)])(?:[[［【]\s*\d+\s*[\]］】])+/g, '')
+      .replace(/([一-鿿”"』」）)])(?:[[［【]\s*\d+\s*[\]］】])+/g, '$1')
       .replace(/[ \t]+([，。；、！？\n])/g, '$1')
       .replace(/\n{3,}/g, '\n\n')
       .trim();

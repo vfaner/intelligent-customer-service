@@ -37,8 +37,9 @@ const html = readFileSync(join(here, 'index.html'), 'utf8');
  * eval'd by hand instead, which is exactly what the <script src> tags do.
  *
  * The language is seeded through localStorage rather than by faking a timezone:
- * region detection has its own 28-case table in ../widget/selftest.mjs, and
- * `stored` is the highest-priority signal, so this stays deterministic.
+ * region detection has its own case table in ../widget/selftest.mjs, the boot
+ * URL carries no ?lang=, and `stored` outranks every automatic signal, so
+ * this stays deterministic.
  */
 function boot(stored) {
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost:8000/admin/' });

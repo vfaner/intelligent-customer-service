@@ -1234,12 +1234,21 @@ document.addEventListener('cs-lang-change', () => {
   if (typeof syncStrategyHint === 'function') syncStrategyHint();
   if (typeof syncAllowHint === 'function') syncAllowHint();
   if (typeof syncCustomHints === 'function') syncCustomHints();
+  if (typeof syncStrategyHint === 'function') syncStrategyHint();
   if (document.getElementById('page-documents')?.classList.contains('active')) loadDocs();
   checkInit();
 });
 
 const API = (() => {
-  const url = new URLSearchParams(location.search).get('api') || localStorage.getItem('cs_admin_api') || 'http://localhost:8000';
+  // Fallback is THIS page's origin: the console is served by the backend
+  // itself, so wherever it was loaded from is where the API lives. The old
+  // 'http://localhost:8000' default only worked on the dev machine — a LAN
+  // deployment or an nginx :80/:443 proxy served a console that then called
+  // the visitor's own localhost. file:// (selftests etc.) has origin "null",
+  // so localhost stays as the last resort there.
+  const url = new URLSearchParams(location.search).get('api')
+    || localStorage.getItem('cs_admin_api')
+    || (location.origin && location.origin !== 'null' ? location.origin : 'http://localhost:8000');
   localStorage.setItem('cs_admin_api', url);
   document.getElementById('apiUrlDisplay').textContent = url;
   document.getElementById('embedApiUrl').textContent = url;
@@ -2290,12 +2299,18 @@ $('btnSaveRag').addEventListener('click', async () => {
 });
 
 /* ----------- 切分预览 ----------- */
-const STRATEGY_HINTS = {
-  structure: T('识别【章节】、Markdown 标题、第X章、Q&A、Excel 工作表，沿语义边界切分。多数文档用这个。'),
-  window: T('不看结构，每 N 字硬切一刀。只在文档完全没有标题结构时才需要。'),
-};
+// Built per call, NOT a load-time constant: T() snapshots the catalog that
+// was active when this script ran, so a frozen table would keep showing the
+// old language after a switch until the page reloads.
+function strategyHint(key) {
+  const hints = {
+    structure: T('识别【章节】、Markdown 标题、第X章、Q&A、Excel 工作表，沿语义边界切分。多数文档用这个。'),
+    window: T('不看结构，每 N 字硬切一刀。只在文档完全没有标题结构时才需要。'),
+  };
+  return hints[key] || '';
+}
 function syncStrategyHint() {
-  $('ragStrategyHint').textContent = STRATEGY_HINTS[$('ragStrategy').value] || '';
+  $('ragStrategyHint').textContent = strategyHint($('ragStrategy').value);
 }
 $('ragStrategy').addEventListener('change', syncStrategyHint);
 
@@ -2635,19 +2650,35 @@ async function handleUpload(file) {
   }
 }
 
+/* The docs list is paginated client-side: with hundreds of files rendering
+   every row is slow, and the 3s ingest poller re-renders the whole table —
+   paging caps that work. The page index survives polls and clamps when a
+   delete shrinks the list. */
+const DOCS_PAGE_SIZE = 20;
+let docsPage = 0;
+
+function gotoDocsPage(n) {
+  docsPage = n;
+  loadDocs();
+}
+
 async function loadDocs() {
   const box = $('docsContainer');
   box.innerHTML = T('<div class="empty">加载中…</div>');
   try {
     const docs = await API.request('/api/documents/list');
     if (!docs.length) {
+      docsPage = 0;
       box.innerHTML = T('<div class="empty">还没有文档，拖一个文件到上面开始吧。</div>');
       $('dashDocs').textContent = T('0 个文档');
       stopDocsPolling();
       return;
     }
+    const pages = Math.max(1, Math.ceil(docs.length / DOCS_PAGE_SIZE));
+    if (docsPage >= pages) docsPage = pages - 1;
+    const pageDocs = docs.slice(docsPage * DOCS_PAGE_SIZE, (docsPage + 1) * DOCS_PAGE_SIZE);
     let html = T('<table><thead><tr><th>文件名</th><th>大小</th><th>分片数</th><th>状态</th><th>操作</th></tr></thead><tbody>');
-    for (const d of docs) {
+    for (const d of pageDocs) {
       const statusLabel = ({uploaded:T('已上传'), processing:T('处理中'), ready:T('就绪'), failed:T('失败')})[d.status] || d.status;
       const canProcess = (d.status === 'uploaded' || d.status === 'failed');
       // While ingesting, show real progress instead of a bare "处理中" that
@@ -2674,6 +2705,13 @@ async function loadDocs() {
       </tr>`;
     }
     html += '</tbody></table>';
+    if (pages > 1) {
+      html += `<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:12px;">
+        <button class="btn btn-secondary" ${docsPage === 0 ? 'disabled' : ''} onclick="gotoDocsPage(${docsPage - 1})">${T('上一页')}</button>
+        <span style="font-size:13px;color:#6b7280;">${fmt(T('{0} / {1} 页，共 {2} 个文档'), docsPage + 1, pages, docs.length)}</span>
+        <button class="btn btn-secondary" ${docsPage >= pages - 1 ? 'disabled' : ''} onclick="gotoDocsPage(${docsPage + 1})">${T('下一页')}</button>
+      </div>`;
+    }
     box.innerHTML = html;
     const ready = docs.filter(d => d.status === 'ready').length;
     $('dashDocs').textContent = fmt(T('{0} 个文档（{1} 个已入库）'), docs.length, ready);
@@ -2943,13 +2981,17 @@ document.addEventListener('keydown', e => {
 });
 
 /* ----- 打赏 ----- */
-const PAY_METHODS = {
-  wechat: { img: '/assets/wechat.png', label: T('微信'),   hint: T('用微信扫一扫') },
-  alipay: { img: '/assets/alipay.png', label: T('支付宝'), hint: T('用支付宝扫一扫') },
-  qq:     { img: '/assets/qq.png',     label: 'QQ',     hint: T('用 QQ 扫一扫') },
-};
+// Per-call for the same reason as strategyHint(): frozen T() results would
+// survive a language switch in the old language.
+function payMethods() {
+  return {
+    wechat: { img: '/assets/wechat.png', label: T('微信'),   hint: T('用微信扫一扫') },
+    alipay: { img: '/assets/alipay.png', label: T('支付宝'), hint: T('用支付宝扫一扫') },
+    qq:     { img: '/assets/qq.png',     label: 'QQ',     hint: T('用 QQ 扫一扫') },
+  };
+}
 function selectPay(key) {
-  const m = PAY_METHODS[key];
+  const m = payMethods()[key];
   if (!m) return;
   $('qrImg').src = m.img;
   $('qrImg').alt = m.label + T('赞赏码');

@@ -171,9 +171,13 @@ const LOCALE_CASES = [
   // Unmatched tags must not short-circuit to English — keep scanning the list.
   [{ languages: ['fr-FR', 'de', 'zh-CN'] },        'zh-CN', 'language'],
   [{ languages: ['fr-FR', 'de'] },                 'en',    'default'],
-  // A hand-picked language outranks everything, including the region.
-  [{ stored: 'ja', explicit: 'en', timeZone: 'Asia/Shanghai' }, 'ja',    'stored'],
+  // An explicit request (init option / URL ?lang=) outranks even a stored
+  // hand-pick: localStorage is shared per origin, one page's choice must not
+  // override another page's explicit instruction.
+  [{ stored: 'ja', explicit: 'en', timeZone: 'Asia/Shanghai' }, 'en',    'explicit'],
   [{ explicit: 'zh-TW', timeZone: 'Asia/Tokyo' },  'zh-TW', 'explicit'],
+  // With nothing explicit, the hand-picked language outranks the region.
+  [{ stored: 'ja', timeZone: 'Asia/Shanghai' },    'ja',    'stored'],
   // Junk in localStorage degrades to the next signal instead of throwing.
   [{ stored: 'klingon', timeZone: 'Asia/Tokyo' },  'ja',    'timezone'],
   [{ stored: null, languages: null, timeZone: null }, 'en',  'default'],
