@@ -198,6 +198,8 @@ class AnthropicStyleProvider(BaseProvider):
                 await asyncio.sleep(wait)
 
     async def _stream_once(self, headers: dict, payload: dict) -> AsyncIterator[str]:
+        data_lines = 0
+        parsed = 0
         async with self._client.stream(
             "POST", self._endpoint(), headers=headers, json=payload
         ) as resp:
@@ -218,18 +220,35 @@ class AnthropicStyleProvider(BaseProvider):
                 data = line[5:].strip()
                 if not data:
                     continue
+                data_lines += 1
                 try:
                     ev = json.loads(data)
                 except Exception:
                     continue
-                if ev.get("type") == "content_block_delta":
+                parsed += 1
+                etype = ev.get("type")
+                if etype == "content_block_delta":
                     delta = ev.get("delta") or {}
                     if delta.get("type") == "text_delta":
                         text = delta.get("text")
                         if text:
                             yield text
-                elif ev.get("type") == "message_stop":
+                elif etype == "message_stop":
                     break
+                elif etype == "error":
+                    # Mid-stream vendor error (overloaded, quota exhausted…).
+                    # Without this the stream simply ends and the failure is
+                    # indistinguishable from an empty answer.
+                    err = ev.get("error") or {}
+                    raise LLMProtocolError(
+                        f"Anthropic 流式返回错误事件 {err.get('type', 'unknown')}: "
+                        f"{str(err.get('message', ''))[:300]}"
+                    )
+        if data_lines and not parsed:
+            raise LLMProtocolError(
+                f"模型流式响应中没有可解析的数据行（收到 {data_lines} 行）"
+                f"——请检查 Base URL 与协议（anthropic/openai）是否匹配"
+            )
 
     async def aclose(self) -> None:
         if self._owns_client:

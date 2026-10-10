@@ -165,10 +165,12 @@
       uploading: '正在上传：{name}（{size} KB）…',
       parsing: '已上传 {name}，正在解析并入库…',
       ingested: '✅ {name} 已入库：{n} 个片段，现在可以就它提问了',
+      ingesting: '⏳ {name} 已转入后台入库，完成后即可提问（大文件需要一点时间）',
       ingestFailed: '⚠ {name} 入库失败：{err}',
       uploadFailed: '⚠ 上传失败：{err}',
       unknownError: '未知错误',
       genericError: '出错了',
+      streamInterrupted: '（回答被中断，以上内容可能不完整）',
       switched: '已切换为简体中文，接下来我会用简体中文回答。'
     },
     'zh-TW': {
@@ -186,10 +188,12 @@
       uploading: '正在上傳：{name}（{size} KB）…',
       parsing: '已上傳 {name}，正在解析並建立索引…',
       ingested: '✅ {name} 已建立索引：{n} 個片段，現在可以針對它提問了',
+      ingesting: '⏳ {name} 已轉入後台建立索引，完成後即可提問（大檔案需要一點時間）',
       ingestFailed: '⚠ {name} 建立索引失敗：{err}',
       uploadFailed: '⚠ 上傳失敗：{err}',
       unknownError: '未知錯誤',
       genericError: '發生錯誤',
+      streamInterrupted: '（回答被中斷，以上內容可能不完整）',
       switched: '已切換為繁體中文，接下來我會用繁體中文回答。'
     },
     'ja': {
@@ -207,10 +211,12 @@
       uploading: 'アップロード中：{name}（{size} KB）…',
       parsing: '{name} をアップロードしました。解析して登録しています…',
       ingested: '✅ {name} を登録しました：{n} 件のチャンク。この内容について質問できます',
+      ingesting: '⏳ {name} のバックグラウンド登録を開始しました。完了後に質問できます（大きなファイルは時間がかかります）',
       ingestFailed: '⚠ {name} の登録に失敗しました：{err}',
       uploadFailed: '⚠ アップロードに失敗しました：{err}',
       unknownError: '不明なエラー',
       genericError: 'エラーが発生しました',
+      streamInterrupted: '（回答が中断されました。上記の内容は不完全な可能性があります）',
       switched: '日本語に切り替えました。これ以降は日本語でお答えします。'
     },
     'en': {
@@ -228,10 +234,12 @@
       uploading: 'Uploading {name} ({size} KB)…',
       parsing: 'Uploaded {name}. Parsing and indexing…',
       ingested: '✅ {name} indexed: {n} chunk(s). You can ask about it now.',
+      ingesting: '⏳ {name} is being indexed in the background — you can ask about it shortly (large files take a while)',
       ingestFailed: '⚠ Could not index {name}: {err}',
       uploadFailed: '⚠ Upload failed: {err}',
       unknownError: 'Unknown error',
       genericError: 'Something went wrong',
+      streamInterrupted: '(the reply was interrupted; the text above may be incomplete)',
       switched: 'Switched to English. I\'ll reply in English from now on.'
     }
   };
@@ -962,6 +970,30 @@
     if (!isOpen) open();
     appendMessage('user', text);
     const placeholder = appendTyping('assistant');
+    let gotAny = false;    // did we receive answer text?
+    let finished = false;  // did the server send `done`?
+    let failed = false;    // did we already show a failure notice?
+
+    // A mid-stream failure must not erase the text that already arrived — it
+    // is a real (and paid-for) partial answer, and the backend persists it
+    // too. The notice goes in as its own block so it works whether or not the
+    // bubble was already markdown-rendered (`renderAnswer` is one-shot).
+    const failWith = (msg) => {
+      if (failed) return;
+      failed = true;
+      if (gotAny) {
+        renderAnswer(placeholder.bubble);
+        const note = document.createElement('div');
+        note.style.cssText = 'margin-top:6px;font-size:12px;opacity:.75;';
+        note.textContent = '⚠ ' + msg;
+        placeholder.bubble.appendChild(note);
+      } else {
+        placeholder.bubble.innerHTML = '';
+        placeholder.bubble.textContent = '⚠ ' + msg;
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
     try {
       // `lang` makes the backend answer in the current UI language even though
       // the knowledge base is Chinese. Sent per request, so switching mid-chat
@@ -974,15 +1006,17 @@
             placeholder.bubble.innerHTML = '';
             placeholder.bubble.textContent = '';
           }
+          gotAny = true;
           placeholder.bubble.textContent += ev.data.text;
           messagesEl.scrollTop = messagesEl.scrollHeight;
         } else if (ev.event === 'sources') {
           // Sources arrive right before `done`, so the answer text is complete.
           renderAnswer(placeholder.bubble);
         } else if (ev.event === 'error') {
-          placeholder.bubble.innerHTML = '';
-          placeholder.bubble.textContent = '⚠ ' + (ev.data?.message || t('genericError'));
+          const emsg = (ev.data && ev.data.message) || t('genericError');
+          failWith(gotAny ? emsg + t('streamInterrupted') : emsg);
         } else if (ev.event === 'done') {
+          finished = true;
           // Safety net: `sources` normally arrives first and triggers the
           // render, but it can be skipped (e.g. retrieval returned nothing).
           // renderAnswer() is idempotent, so calling it again is free.
@@ -990,9 +1024,12 @@
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
       });
+      // ssePost resolved but `done` never arrived: the connection was cut
+      // mid-stream (proxy timeout, server restart). Say so instead of leaving
+      // the bubble looking complete — or the typing dots spinning forever.
+      if (!finished) failWith(t('streamInterrupted'));
     } catch (e) {
-      placeholder.bubble.innerHTML = '';
-      placeholder.bubble.textContent = '⚠ ' + e.message;
+      failWith(gotAny ? e.message + t('streamInterrupted') : e.message);
     }
   }
 
@@ -1039,15 +1076,20 @@
       if (!pr.ok) {
         throw new Error((pd && pd.error && pd.error.message) || pdText || ('HTTP ' + pr.status));
       }
-      // /process answers 200 even when ingestion failed — the outcome is in
-      // `status`, so checking pr.ok alone would report a bogus success.
+      // /process answers 202 immediately and ingests in the background — the
+      // outcome is in `status`, so checking pr.ok alone would report a bogus
+      // success. 'processing' is the normal queued case; 'ready' means the
+      // file was already ingested (duplicate upload); 'failed' is a fast
+      // synchronous rejection (e.g. the parser failed before queueing).
       if (pd && pd.status === 'ready') {
         say(t('ingested', { name: up.filename, n: pd.chunk_count }));
-      } else {
+      } else if (pd && pd.status === 'failed') {
         say(t('ingestFailed', {
           name: up.filename,
-          err: (pd && pd.error_message) || t('unknownError'),
+          err: pd.error_message || t('unknownError'),
         }));
+      } else {
+        say(t('ingesting', { name: up.filename }));
       }
     } catch (err) {
       say(t('uploadFailed', { err: err.message }));

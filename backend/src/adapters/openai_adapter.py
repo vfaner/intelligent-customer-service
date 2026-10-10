@@ -163,6 +163,8 @@ class OpenAIStyleProvider(BaseProvider):
                 await asyncio.sleep(wait)
 
     async def _stream_once(self, headers: dict, payload: dict) -> AsyncIterator[str]:
+        data_lines = 0
+        parsed = 0
         async with self._client.stream(
             "POST", self._endpoint(), headers=headers, json=payload
         ) as resp:
@@ -181,12 +183,16 @@ class OpenAIStyleProvider(BaseProvider):
                 if not line or not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
+                if not data:
+                    continue
                 if data == "[DONE]":
                     break
+                data_lines += 1
                 try:
                     obj = json.loads(data)
                 except Exception:
                     continue
+                parsed += 1
                 try:
                     delta = obj["choices"][0].get("delta") or {}
                     piece = delta.get("content")
@@ -194,6 +200,14 @@ class OpenAIStyleProvider(BaseProvider):
                     piece = None
                 if piece:
                     yield piece
+        if data_lines and not parsed:
+            # A gateway that answered 200 with HTML/plain text (wrong base
+            # URL, captive portal, proxy error page) used to produce a silent
+            # empty stream, which the RAG layer masked as "no answer found".
+            raise LLMProtocolError(
+                f"模型流式响应中没有可解析的数据行（收到 {data_lines} 行）"
+                f"——请检查 Base URL 与协议（openai/anthropic）是否匹配"
+            )
 
     async def aclose(self) -> None:
         if self._owns_client:
