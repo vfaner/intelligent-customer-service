@@ -120,3 +120,14 @@ ERROR_PREFIX: Dict[str, str] = {
     "ja": "[エラー]",
     "en": "[Error]",
 }
+
+#: Generic stream-failure text for visitors when an unexpected exception
+#: aborts an answer. Internal detail goes to the log only — raw exception
+#: text can carry paths, config values or vendor URLs, and the persisted
+#: history row is replayed to the visitor on reconnect.
+STREAM_ERROR_INTERNAL: Dict[str, str] = {
+    "zh-CN": "服务暂时不可用，请稍后再试。",
+    "zh-TW": "服務暫時不可用，請稍後再試。",
+    "ja": "サービスが一時的に利用できません。しばらくしてからもう一度お試しください。",
+    "en": "The service is temporarily unavailable. Please try again later.",
+}

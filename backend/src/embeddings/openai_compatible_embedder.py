@@ -15,11 +15,12 @@ from typing import List
 import httpx
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
+from ..core.exceptions import make_retry_predicate
 from .base import BaseEmbedder, EmbeddingError
 
 log = logging.getLogger(__name__)
@@ -161,7 +162,10 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
         return None
 
     @retry(
-        retry=retry_if_exception_type((httpx.HTTPError, EmbeddingError)),
+        # 4xx (except 429) carries upstream_status and is NOT retried — a bad
+        # key or model name fails identically every time. 429 never reaches
+        # this predicate (raised as _RateLimited, handled by embed()'s loop).
+        retry=retry_if_exception(make_retry_predicate(httpx.HTTPError, EmbeddingError)),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
         reraise=True,
@@ -188,7 +192,8 @@ class OpenAICompatibleEmbedder(BaseEmbedder):
                 # that will always fail.
                 raise _BatchTooLarge(body, self._parse_max_from_error(body))
             raise EmbeddingError(
-                f"Embedding API returned HTTP {resp.status_code}: {body[:300]}"
+                f"Embedding API returned HTTP {resp.status_code}: {body[:300]}",
+                upstream_status=resp.status_code,
             )
         try:
             data = resp.json()

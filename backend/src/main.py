@@ -11,6 +11,7 @@ embeddable widget can be loaded from any third-party site.
 """
 from __future__ import annotations
 
+import html
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -422,8 +423,12 @@ def create_app() -> FastAPI:
     async def root(request: Request) -> str:
         # Use the URL the browser actually reached us on, so the embed snippet
         # is copy-pasteable on a deployed server instead of always saying
-        # localhost:8000.
-        origin = f"{request.url.scheme}://{request.url.netloc}"
+        # localhost:8000. netloc comes from the client-controlled Host header,
+        # so escape it before interpolating into the page (reflected-content
+        # hardening — a quote in Host must not break out of the snippet).
+        origin = html.escape(
+            f"{request.url.scheme}://{request.url.netloc}", quote=True
+        )
         return f"""
         <html lang="zh-CN"><head><meta charset="utf-8"><title>{settings.app.name}</title>
         <style>body{{font-family:-apple-system,sans-serif;max-width:680px;margin:60px auto;padding:0 24px;color:#222}}

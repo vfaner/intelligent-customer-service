@@ -14,11 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..adapters.base import LLMMessage
 from ..core.config import get_settings
 from ..core.database import get_db, session_scope
-from ..core.exceptions import NotFoundError, ValidationError
+from ..core.exceptions import AppError, NotFoundError, ValidationError
 from ..core.i18n import (
     DEFAULT_LANG,
     ERROR_PREFIX,
     NEW_SESSION_TITLE,
+    STREAM_ERROR_INTERNAL,
     normalize_lang,
     pick,
 )
@@ -306,11 +307,20 @@ async def chat_stream(body: ChatIn, db: AsyncSession = Depends(get_db)) -> Strea
             raise
         except Exception as e:
             log.exception("chat stream failed: %s", e)
-            yield _sse("error", {"message": str(e)})
+            # AppError messages are written for end users (same text the JSON
+            # error handler returns). Anything else may carry paths, config
+            # values or vendor URLs, so visitors only get a generic line —
+            # it also lands in the persisted history row, which replays on
+            # reconnect. Full detail stays in the server log above.
+            public = (
+                e.message if isinstance(e, AppError)
+                else pick(STREAM_ERROR_INTERNAL, lang)
+            )
+            yield _sse("error", {"message": public})
             yield _sse("done", {"ok": False})
             try:
                 await session_svc.add_message(
-                    session_id, "assistant", f"{pick(ERROR_PREFIX, lang)} {e}", meta={"error": True}
+                    session_id, "assistant", f"{pick(ERROR_PREFIX, lang)} {public}", meta={"error": True}
                 )
             except Exception:
                 pass

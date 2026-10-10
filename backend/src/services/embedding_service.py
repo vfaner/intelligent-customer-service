@@ -126,6 +126,21 @@ def build_embedder_from(cfg: Dict[str, Any]) -> BaseEmbedder:
             },
         )
 
+    # 防呆：DeepSeek 没有向量模型（embedding）接口。聊天模型用 DeepSeek 的人
+    # 常把同一个 base_url 抄到这里，之后每次调用都得到裸 404，很难看出原因。
+    # 放在混合来源检查之前——URL 本身就不可能工作时，来源讨论没有意义。
+    if "deepseek.com" in str(cfg.get("base_url") or "").lower():
+        raise _EmbeddingAppError(
+            "DeepSeek 不提供向量化（embedding）接口，这个 Base URL 调用只会返回 404。"
+            "请换成提供 embedding 的厂商（OpenAI text-embedding-3-small、"
+            "阿里百炼 text-embedding-v3、智谱 embedding-3、硅基流动 BAAI/bge-m3 等），"
+            f"它可以和聊天模型不是同一家。{_WHERE_TO_FIX}",
+            details={
+                "base_url": cfg["base_url"],
+                "reason": "deepseek_has_no_embedding_api",
+            },
+        )
+
     # Catch the silent trap: a key you saved in the console being sent to a
     # base_url that defaulted from .env (or vice versa). That's almost always
     # two different vendors and surfaces as an opaque 401.

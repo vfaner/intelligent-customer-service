@@ -20,8 +20,10 @@ class Session(Base):
     meta: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    # Indexed: the admin session list sorts by recency. Only affects freshly
+    # created tables — create_all() never alters an existing DB.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=func.now(), onupdate=func.now(), index=True, nullable=False
     )
 
     messages: Mapped[List["Message"]] = relationship(  # noqa: F821

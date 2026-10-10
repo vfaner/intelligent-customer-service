@@ -61,8 +61,16 @@ class QdrantStore(BaseVectorStore):
 
         # Ensure collection exists
         if not self._client.collection_exists(collection_name=collection):
+            # Qdrant collections have a fixed vector size. Clamping a bad dim
+            # to 1 would silently create a collection no real embedding fits
+            # (an existing collection is fine with dim=0 — it carries its own).
+            if embedding_dim <= 0:
+                raise VectorStoreError(
+                    "Qdrant requires a fixed vector dimension when creating a collection. "
+                    "Set VECTOR_DB_EMBEDDING_DIM (and EMBEDDING_DIM) to match your model."
+                )
             vectors_config = qm.VectorParams(
-                size=max(1, embedding_dim), distance=qm.Distance.COSINE
+                size=embedding_dim, distance=qm.Distance.COSINE
             )
             self._client.create_collection(collection_name=collection, vectors_config=vectors_config)
             log.info("Created Qdrant collection %s (dim=%s)", collection, embedding_dim)
@@ -199,11 +207,18 @@ class QdrantStore(BaseVectorStore):
 
     async def reset(self) -> None:
         """Drop and recreate the collection at the configured dimension."""
+        # Check before dropping anything: recreating at a clamped dim=1 would
+        # destroy a working collection and leave an unusable one behind.
+        if self.embedding_dim <= 0:
+            raise VectorStoreError(
+                "Qdrant requires a fixed vector dimension when creating a collection. "
+                "Set VECTOR_DB_EMBEDDING_DIM (and EMBEDDING_DIM) to match your model."
+            )
 
         def _do():
             qm = self._qm
             vectors_config = qm.VectorParams(
-                size=max(1, self.embedding_dim), distance=qm.Distance.COSINE
+                size=self.embedding_dim, distance=qm.Distance.COSINE
             )
             try:
                 if self._client.collection_exists(collection_name=self.collection):

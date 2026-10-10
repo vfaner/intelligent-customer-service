@@ -10,11 +10,12 @@ from typing import AsyncIterator, List, Optional
 import httpx
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
+from ..core.exceptions import make_retry_predicate
 from .base import (
     RATE_LIMIT_BUDGET,
     BaseProvider,
@@ -97,7 +98,9 @@ class OpenAIStyleProvider(BaseProvider):
                 await asyncio.sleep(rate_limit_wait(attempt, e.retry_after))
 
     @retry(
-        retry=retry_if_exception_type((httpx.HTTPError, LLMProtocolError)),
+        # 4xx (except 429) carries upstream_status and is NOT retried — a bad
+        # key or model name fails identically every time.
+        retry=retry_if_exception(make_retry_predicate(httpx.HTTPError, LLMProtocolError)),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
         reraise=True,
@@ -110,7 +113,10 @@ class OpenAIStyleProvider(BaseProvider):
         if resp.status_code == 429:
             raise LLMRateLimited(resp.text[:300], parse_retry_after(resp.headers))
         if resp.status_code >= 400:
-            raise LLMProtocolError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+            raise LLMProtocolError(
+                f"HTTP {resp.status_code}: {resp.text[:500]}",
+                upstream_status=resp.status_code,
+            )
         try:
             data = resp.json()
         except Exception as e:
@@ -175,7 +181,10 @@ class OpenAIStyleProvider(BaseProvider):
                 )
             if resp.status_code >= 400:
                 body = await resp.aread()
-                raise LLMProtocolError(f"HTTP {resp.status_code}: {body[:500].decode('utf-8', 'ignore')}")
+                raise LLMProtocolError(
+                    f"HTTP {resp.status_code}: {body[:500].decode('utf-8', 'ignore')}",
+                    upstream_status=resp.status_code,
+                )
             async for raw in resp.aiter_lines():
                 if not raw:
                     continue

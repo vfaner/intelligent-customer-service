@@ -408,6 +408,11 @@ class DocumentService:
             err_msg = str(e)[:2000]
 
         # Phase 3: write the final status back.
+        # Default covers the rare case where the row was deleted mid-ingest:
+        # the fresh fetch below finds nothing, and the caller still gets a dict.
+        result: Dict[str, Any] = {
+            "id": document_id, "status": new_status, "chunk_count": count,
+        }
         async with session_scope() as session:
             doc = (
                 await session.execute(select(Document).where(Document.id == document_id))
@@ -435,10 +440,6 @@ class DocumentService:
         if new_status == "ready" and actual_dim and resume_from == 0:
             await self._maybe_stamp_index_signature(actual_dim)
         return result
-
-        if new_status == "failed":
-            raise DocumentError(f"Processing failed: {err_msg}")
-        return {"id": document_id, "chunk_count": count, "status": new_status}
 
     async def list_documents(self) -> List[Dict[str, Any]]:
         """List documents, flipping abandoned `processing` rows to `failed`.

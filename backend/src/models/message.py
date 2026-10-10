@@ -21,7 +21,11 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     sources: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     meta: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    # Indexed: history loads ORDER BY created_at per session. Only affects
+    # freshly created tables — create_all() never alters an existing DB.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True, nullable=False
+    )
 
     session: Mapped["Session"] = relationship(back_populates="messages")  # noqa: F821
 

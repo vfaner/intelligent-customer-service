@@ -16,6 +16,12 @@ from typing import AsyncIterator, List, Optional, Tuple
 class LLMProtocolError(Exception):
     """Raised when the provider returns an unexpected payload."""
 
+    def __init__(self, message: str, *, upstream_status: Optional[int] = None) -> None:
+        super().__init__(message)
+        #: HTTP status the vendor returned, when this wraps an HTTP response.
+        #: Drives ``core.exceptions.is_fatal_http_status`` (4xx = no retry).
+        self.upstream_status = upstream_status
+
 
 class LLMRateLimited(Exception):
     """Provider returned HTTP 429.

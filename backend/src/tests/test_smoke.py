@@ -301,8 +301,8 @@ def test_embedder_rejects_key_and_url_from_different_sources() -> None:
 
     mixed = {
         "provider": "openai_compatible",
-        "api_key": "ark-somekey",
-        "base_url": "https://api.deepseek.com/v1",
+        "api_key": "sk-somekey",
+        "base_url": "https://api.openai.com/v1",
         "model": "text-embedding-3-small",
         "dim": 1024,
         "_origin": {"api_key": "db", "base_url": "env"},
@@ -317,6 +317,28 @@ def test_embedder_rejects_key_and_url_from_different_sources() -> None:
     # No origin info at all (CLI / sync path) → don't block.
     no_origin = {k: v for k, v in mixed.items() if k != "_origin"}
     assert build_embedder_from(no_origin) is not None
+
+
+def test_embedder_rejects_deepseek_base_url() -> None:
+    """DeepSeek has no embedding API — the chat base_url copy-pasted here
+    would 404 on every call. The guard must name the real problem and the
+    fix, regardless of where the values came from."""
+    from src.core.exceptions import EmbeddingError
+    from src.services.embedding_service import build_embedder_from
+
+    cfg = {
+        "provider": "openai_compatible",
+        "api_key": "sk-deepseekkey",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "embedding-3",
+        "dim": 1024,
+        "_origin": {"api_key": "db", "base_url": "db"},
+    }
+    with pytest.raises(EmbeddingError) as exc:
+        build_embedder_from(cfg)
+    msg = str(exc.value)
+    assert "不提供向量化" in msg and "404" in msg
+    assert "管理后台" in msg, "错误信息必须告诉用户去哪修"
 
 
 def test_markdown_files_are_accepted_for_upload() -> None:

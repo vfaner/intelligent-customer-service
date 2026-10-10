@@ -42,6 +42,19 @@ class EmbeddingError(AppError):
     status_code = 502
     code = "embedding_error"
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: Dict[str, Any] | None = None,
+        upstream_status: int | None = None,
+    ) -> None:
+        super().__init__(message, details=details)
+        #: HTTP status the embedding *vendor* returned — NOT the status our own
+        #: API answers with (that stays 502 via ``status_code``). Set only when
+        #: the error wraps an HTTP response; drives ``is_fatal_http_status``.
+        self.upstream_status = upstream_status
+
 
 class NotFoundError(AppError):
     status_code = 404
@@ -67,6 +80,31 @@ class ValidationError(AppError):
 class RateLimitError(AppError):
     status_code = 429
     code = "rate_limited"
+
+
+def is_fatal_http_status(exc: BaseException) -> bool:
+    """True when retrying the identical request cannot possibly succeed.
+
+    An upstream 4xx (except 429, which has its own wait-and-retry path) means
+    the API key, payload or endpoint is wrong — the vendor's message should
+    surface immediately instead of three backoff rounds failing the same way.
+    """
+    code = getattr(exc, "upstream_status", None)
+    return isinstance(code, int) and code != 429 and 400 <= code < 500
+
+
+def make_retry_predicate(*retry_types: type):
+    """Build a tenacity predicate: retry these types, minus fatal 4xx.
+
+    Shared by the LLM adapters and the embedding client. tenacity 9 dropped
+    the ``~`` operator on retry conditions, hence the explicit predicate
+    instead of composing ``retry_if_exception_type & ~...``.
+    """
+
+    def _predicate(exc: BaseException) -> bool:
+        return isinstance(exc, retry_types) and not is_fatal_http_status(exc)
+
+    return _predicate
 
 
 def _payload(exc: AppError) -> Dict[str, Any]:

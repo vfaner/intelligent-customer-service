@@ -19,6 +19,7 @@ from src.core.i18n import (
     DEFAULT_LANG,
     ERROR_PREFIX,
     NEW_SESSION_TITLE,
+    STREAM_ERROR_INTERNAL,
     SUPPORTED_LANGS,
     assert_complete,
     normalize_lang,
@@ -78,6 +79,7 @@ def test_default_is_simplified_chinese_for_backwards_compatibility() -> None:
         (AGENT_NAME, "AGENT_NAME"),
         (NEW_SESSION_TITLE, "NEW_SESSION_TITLE"),
         (ERROR_PREFIX, "ERROR_PREFIX"),
+        (STREAM_ERROR_INTERNAL, "STREAM_ERROR_INTERNAL"),
     ],
 )
 def test_every_table_covers_every_language(table: dict, name: str) -> None:

@@ -190,6 +190,12 @@ def _config_with_env_defaults() -> CSConfigOut:
             similarity_threshold=s.rag.similarity_threshold,
             chunk_size=s.rag.chunk_size,
             chunk_overlap=s.rag.chunk_overlap,
+            # Env-tunable too — omitting these would show the pydantic defaults
+            # instead of what the runtime actually uses from .env.
+            chunk_strategy=s.rag.chunk_strategy,
+            chunk_prefix_heading=s.rag.chunk_prefix_heading,
+            allow_model_knowledge=s.rag.allow_model_knowledge,
+            relevance_threshold=s.rag.relevance_threshold,
         ),
         active_provider_code=s.llm.provider,
     )

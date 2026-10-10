@@ -196,20 +196,22 @@ async def start_reindex(
     max_rounds: int = DEFAULT_MAX_ROUNDS,
 ) -> Dict[str, Any]:
     """Kick off a rebuild in the background and return immediately."""
-    if _STATE["running"]:
-        raise ReindexInProgress("向量库重建任务已在运行中")
-
+    global _current_task
     async with _STATE_LOCK:
+        # Check-and-flip must be atomic: two near-simultaneous requests would
+        # otherwise both see running=False and start two rebuild jobs.
+        if _STATE["running"]:
+            raise ReindexInProgress("向量库重建任务已在运行中")
         _STATE.clear()
         _STATE.update(_fresh_state())
         _STATE.update(
             running=True, phase="preflight", started_at=_now(), finished_at=""
         )
-
-    global _current_task
-    _current_task = asyncio.create_task(
-        _run(settings, cooldown=cooldown, max_rounds=max_rounds)
-    )
+        # create_task only schedules the coroutine — _run can't touch _STATE
+        # until this coroutine next awaits, by which point the lock is out.
+        _current_task = asyncio.create_task(
+            _run(settings, cooldown=cooldown, max_rounds=max_rounds)
+        )
     return _snapshot()
 
 
