@@ -95,6 +95,17 @@ def _is_masked(value: str) -> bool:
     return bool(value) and value.startswith(MASK_PREFIX)
 
 
+def _deep_merge(base: Dict[str, Any], over: Dict[str, Any]) -> Dict[str, Any]:
+    """Overlay ``over`` onto ``base``; nested dicts merge key-by-key."""
+    out = dict(base)
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 class CSConfigOut(CSConfigIn):
     model_api_key: str = ""  # masked in responses
 
@@ -188,34 +199,55 @@ def _config_with_env_defaults() -> CSConfigOut:
 @router.put("", response_model=CSConfigOut, summary="Update customer-service config")
 async def put_config(body: CSConfigIn, db: AsyncSession = Depends(get_db)) -> CSConfigOut:
     row = (await db.execute(select(CSConfig).limit(1))).scalar_one_or_none()
-    data = body.model_dump()
-    previous = row.data if row is not None else {}
+    previous: Dict[str, Any] = dict((row.data if row is not None else None) or {})
 
-    def resolve_secret(incoming: str, prev_obfuscated: str) -> str:
+    # Merge semantics: only fields the client actually SENT overwrite stored
+    # values. The old wholesale replacement meant a partial PUT (a script, or
+    # a console flow editing one section) silently reset everything else —
+    # including secrets — to schema defaults.
+    incoming = body.model_dump(exclude_unset=True)
+
+    # index_signature is written ONLY by the reindex pipeline. A client that
+    # omits it must not erase the built index's identity (the console would
+    # offer a full rebuild again), one that round-trips a stale GET must not
+    # clobber a signature the reindex job stamped in between, and one that
+    # sends a crafted value must not forge "index is in sync". Dropped from
+    # every PUT.
+    incoming.pop("index_signature", None)
+
+    base = previous if previous else body.model_dump()
+    data = _deep_merge(base, incoming)
+    data["index_signature"] = previous.get("index_signature")
+
+    def resolve_secret(sent: str, prev_obfuscated: str) -> str:
         """Keep the stored secret when the UI echoes back a mask or blank."""
-        incoming = (incoming or "").strip()
-        if not incoming or _is_masked(incoming):
+        sent = (sent or "").strip()
+        if not sent or _is_masked(sent):
             return prev_obfuscated or ""
-        return obfuscate(incoming)
+        return obfuscate(sent)
 
-    # LLM key
-    data["model_api_key"] = resolve_secret(
-        data.get("model_api_key", ""), (previous or {}).get("model_api_key", "")
-    )
+    # Secrets are re-resolved ONLY when the client actually sent the field:
+    # otherwise `data` already carries the stored OBFUSCATED value from the
+    # merge, and feeding it through obfuscate() again would double-encrypt it
+    # into garbage the deobfuscator can't read back.
+    if "model_api_key" in incoming:
+        data["model_api_key"] = resolve_secret(
+            data.get("model_api_key", ""), previous.get("model_api_key", "")
+        )
 
-    # Embedding key
-    emb = dict(data.get("embedding") or {})
-    prev_emb = dict((previous or {}).get("embedding") or {})
-    emb["api_key"] = resolve_secret(emb.get("api_key", ""), prev_emb.get("api_key", ""))
-    data["embedding"] = emb
+    prev_emb = dict(previous.get("embedding") or {})
+    if "api_key" in (incoming.get("embedding") or {}):
+        emb = dict(data.get("embedding") or {})
+        emb["api_key"] = resolve_secret(emb.get("api_key", ""), prev_emb.get("api_key", ""))
+        data["embedding"] = emb
 
-    # Milvus token
-    vec = dict(data.get("vector_db") or {})
-    prev_vec = dict((previous or {}).get("vector_db") or {})
-    vec["milvus_token"] = resolve_secret(
-        vec.get("milvus_token", ""), prev_vec.get("milvus_token", "")
-    )
-    data["vector_db"] = vec
+    prev_vec = dict(previous.get("vector_db") or {})
+    if "milvus_token" in (incoming.get("vector_db") or {}):
+        vec = dict(data.get("vector_db") or {})
+        vec["milvus_token"] = resolve_secret(
+            vec.get("milvus_token", ""), prev_vec.get("milvus_token", "")
+        )
+        data["vector_db"] = vec
 
     if row is None:
         row = CSConfig(data=data)

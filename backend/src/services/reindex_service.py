@@ -32,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from copy import deepcopy
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +40,7 @@ from sqlalchemy import select
 from ..core.database import session_scope
 from ..models.config import CSConfig
 from ..models.document import Document
+from ..utils.timeutil import utcnow_naive
 from ..vector_store.factory import build_vector_store
 from . import runtime
 from .document_service import DocumentService
@@ -71,7 +71,7 @@ class ReindexInProgress(Exception):
 
 
 def _now() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return utcnow_naive().isoformat(timespec="seconds") + "Z"
 
 
 def _fresh_state() -> Dict[str, Any]:

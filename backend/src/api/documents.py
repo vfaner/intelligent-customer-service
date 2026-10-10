@@ -57,12 +57,24 @@ class UploadOut(DocumentOut):
 async def upload_document(file: UploadFile = File(...)) -> UploadOut:
     settings = get_settings()
     max_bytes = settings.app.max_upload_mb * 1024 * 1024
-    content = await file.read()
-    if len(content) > max_bytes:
-        raise DocumentError(
-            f"File too large: {len(content)} bytes (limit {max_bytes})",
-            details={"limit_mb": settings.app.max_upload_mb},
-        )
+    # Read in bounded chunks and abort the moment the limit is crossed. The
+    # old `await file.read()` buffered the ENTIRE body before checking its
+    # size, so one oversized upload could exhaust server memory before being
+    # rejected — the check only protects the disk, not the process.
+    chunks: List[bytes] = []
+    total = 0
+    while True:
+        piece = await file.read(1024 * 1024)
+        if not piece:
+            break
+        total += len(piece)
+        if total > max_bytes:
+            raise DocumentError(
+                f"File too large: over {max_bytes} bytes (limit {max_bytes})",
+                details={"limit_mb": settings.app.max_upload_mb},
+            )
+        chunks.append(piece)
+    content = b"".join(chunks)
     if not content:
         raise DocumentError("Empty file")
     svc = DocumentService(settings)

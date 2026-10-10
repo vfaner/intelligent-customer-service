@@ -388,7 +388,7 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_session_cache shared:SSL:10m;
 
-    # 知识文档最大 20 MB（与 MAX_UPLOAD_MB 保持一致，留些余量）
+    # 知识文档最大 20 MB（与 APP_MAX_UPLOAD_MB 保持一致，留些余量）
     client_max_body_size 25M;
 
     access_log /var/log/nginx/ics.access.log;
@@ -630,7 +630,7 @@ DATABASE_URL=dm+dmAsync://SYSDBA:SYSDBA@localhost:5236/DAMENG
 
 ```env
 VECTOR_DB_PROVIDER=chroma
-CHROMA_PERSIST_DIR=./data/chroma_db
+VECTOR_DB_CHROMA_PERSIST_DIR=./data/chroma_db
 ```
 
 注意：多 worker 写同一目录可能冲突，见上面 [`--workers` 说明](#关于---workers)。
@@ -986,7 +986,7 @@ curl -N -sS -X POST https://你的域名/api/chat/stream \
 <details>
 <summary><b>上传文档报 413 Request Entity Too Large</b></summary>
 
-Nginx 的 `client_max_body_size` 小于文件大小。改成比 `MAX_UPLOAD_MB` 稍大：
+Nginx 的 `client_max_body_size` 小于文件大小。改成比 `APP_MAX_UPLOAD_MB` 稍大：
 
 ```nginx
 client_max_body_size 25M;

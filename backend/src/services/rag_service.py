@@ -17,7 +17,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from ..adapters.base import LLMMessage
 from ..core.config import Settings, get_settings
-from ..core.exceptions import LLMError, VectorStoreError
+from ..core.exceptions import VectorStoreError
 from ..core.i18n import AGENT_NAME, normalize_lang, pick
 from ..prompts import (
     FALLBACK_SYSTEM_PROMPT,
@@ -122,6 +122,20 @@ class RAGService:
             log.debug("could not read rag config from DB: %s", e)
         return cfg
 
+    async def _base_temperature(self) -> float:
+        """Effective LLM temperature: console config over .env.
+
+        Must match the precedence LLMService applies when building the
+        provider — ask()/stream_ask() pass ``temperature=`` explicitly (to
+        cap document-grounded answers), and an explicit value overrides the
+        provider default. Reading only ``settings.llm.temperature`` here made
+        the console's temperature slider a no-op for every RAG request.
+        """
+        resolver = getattr(self._llm, "resolved_temperature", None)
+        if resolver is not None:
+            return float(await resolver())
+        return float(self.settings().llm.temperature)
+
     # --- pipeline -----------------------------------------------------
     async def _retrieve(self, question: str, cfg: Dict[str, Any]) -> List[VectorHit]:
         # Interactive path: a 429-hammered embedding vendor must surface an
@@ -212,7 +226,6 @@ class RAGService:
         messages, sources, from_model = await self._build_messages(
             question, history, agent_name, lang
         )
-        s = self.settings()
         if not sources and not from_model:
             # Nothing retrieved and fallback is off — refuse without paying for
             # a round-trip that would only produce the canned reply anyway.
@@ -220,7 +233,8 @@ class RAGService:
             return pick(NO_HIT_REPLY, lang), []
         # A model-knowledge answer isn't constrained by documents, so the low
         # anti-hallucination temperature doesn't apply.
-        temp = s.llm.temperature if from_model else min(s.llm.temperature, 0.3)
+        base_temp = await self._base_temperature()
+        temp = base_temp if from_model else min(base_temp, 0.3)
         answer = await self._llm.chat(messages, temperature=temp)
         return answer, sources
 
@@ -250,8 +264,8 @@ class RAGService:
         if not sources and not from_model:
             yield pick(NO_HIT_REPLY, lang), []
             return
-        s = self.settings()
-        temp = s.llm.temperature if from_model else min(s.llm.temperature, 0.3)
+        base_temp = await self._base_temperature()
+        temp = base_temp if from_model else min(base_temp, 0.3)
         yielded_any = False
         async for token in self._llm.stream_chat(messages, temperature=temp):
             yielded_any = True

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Optional, Tuple
 
 from sqlalchemy import func, select
@@ -16,6 +15,7 @@ from ..core.security import (
     verify_password,
 )
 from ..models.user import AdminUser
+from ..utils.timeutil import utcnow_naive
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +97,9 @@ async def authenticate(db: AsyncSession, username: str, password: str) -> AdminU
     if not verify_password(password or "", user.password_hash):
         raise generic
 
-    user.last_login_at = datetime.now()
+    # Naive UTC, not datetime.now(): every other timestamp column is UTC, and
+    # a local-time last_login_at would be off by the server's UTC offset.
+    user.last_login_at = utcnow_naive()
     await db.flush()
     return user
 

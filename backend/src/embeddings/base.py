@@ -4,9 +4,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-
-class EmbeddingError(Exception):
-    """Raised when embedding generation fails."""
+# Single error type — see the note in vector_store/base.py. Embedder failures
+# must reach the API exception handler as an AppError (502 `embedding_error`
+# with the actionable message) instead of escaping as an anonymous 500.
+from ..core.exceptions import EmbeddingError  # noqa: F401  (re-exported)
 
 
 class BaseEmbedder(ABC):

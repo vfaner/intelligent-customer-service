@@ -153,6 +153,18 @@ class LLMService:
             if owned and hasattr(provider, "aclose"):
                 await provider.aclose()  # type: ignore[attr-defined]
 
+    async def resolved_temperature(self) -> float:
+        """The effective temperature: CSConfig (console) over .env.
+
+        Same precedence _resolve() applies when building the provider.
+        RAGService needs the value up front — it caps the temperature for
+        document-grounded answers and passes ``temperature=`` explicitly,
+        which would otherwise silently override whatever the admin set in
+        the console with the .env value.
+        """
+        settings = self._settings or get_settings()
+        return float(_resolved(settings, await _load_runtime_config())["temperature"])
+
     async def test(self) -> tuple[bool, str]:
         provider, owned = await _resolve(self._settings)
         try:

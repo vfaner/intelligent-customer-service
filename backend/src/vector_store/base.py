@@ -5,9 +5,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-
-class VectorStoreError(Exception):
-    """Raised when the vector store fails."""
+# Single error type for the whole stack: stores raise the SAME VectorStoreError
+# the API exception handler understands (AppError → clean JSON with a
+# `vector_store_error` code). This file used to define a plain-Exception
+# lookalike, so store failures escaped the handler as anonymous 500s — and
+# rag_service's `except VectorStoreError: raise` was dead code, catching the
+# *other* class.
+from ..core.exceptions import VectorStoreError  # noqa: F401  (re-exported)
 
 
 @dataclass

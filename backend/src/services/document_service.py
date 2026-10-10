@@ -263,9 +263,11 @@ class DocumentService:
             # and overwrite each other's progress counter. A row untouched for
             # STALE_PROCESSING_MINUTES is treated as abandoned and reclaimed.
             if doc.status == "processing":
-                from datetime import datetime, timedelta
+                from datetime import timedelta
 
-                fresh_cutoff = datetime.utcnow() - timedelta(
+                from ..utils.timeutil import utcnow_naive
+
+                fresh_cutoff = utcnow_naive() - timedelta(
                     minutes=self.STALE_PROCESSING_MINUTES
                 )
                 if doc.updated_at and doc.updated_at > fresh_cutoff:
@@ -444,11 +446,13 @@ class DocumentService:
         Anything untouched for STALE_PROCESSING_MINUTES gets marked failed with
         an actionable message so the user can retry.
         """
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
         from sqlalchemy import select
 
-        cutoff = datetime.utcnow() - timedelta(minutes=self.STALE_PROCESSING_MINUTES)
+        from ..utils.timeutil import utcnow_naive
+
+        cutoff = utcnow_naive() - timedelta(minutes=self.STALE_PROCESSING_MINUTES)
         async with session_scope() as session:
             rows = (
                 await session.execute(
