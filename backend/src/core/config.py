@@ -87,13 +87,6 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="DATABASE_", extra="ignore")
 
 
-class RedisSettings(BaseSettings):
-    url: str = ""
-    enabled: bool = False
-
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_", extra="ignore")
-
-
 class VectorDBSettings(BaseSettings):
     provider: Literal["chroma", "qdrant", "milvus"] = "chroma"
     host: str = "localhost"
@@ -124,8 +117,15 @@ class LLMSettings(BaseSettings):
 
 
 class EmbeddingSettings(BaseSettings):
-    provider: Literal["openai_compatible", "sentence_transformer"] = "openai_compatible"
+    # Only one implementation exists; the Literal keeps a typo'd
+    # EMBEDDING_PROVIDER failing fast at boot instead of at first query
+    # (the old "sentence_transformer" option never had an implementation).
+    provider: Literal["openai_compatible"] = "openai_compatible"
     api_key: str = ""
+    # ⚠ Placeholder pair, NOT a working combo: DeepSeek has no embedding API.
+    # Users must point these at a real embedding vendor — .env.example lists
+    # working examples, and embedding_service turns this specific mistake into
+    # a plain-language error instead of a bare 404.
     base_url: str = "https://api.deepseek.com/v1"
     model: str = "text-embedding-3-small"
     dim: int = 1024
@@ -225,7 +225,6 @@ class Settings:
     def __init__(self) -> None:
         self.app = AppSettings()
         self.database = DatabaseSettings()
-        self.redis = RedisSettings()
         self.vector_db = VectorDBSettings()
         self.llm = LLMSettings()
         self.embedding = EmbeddingSettings()

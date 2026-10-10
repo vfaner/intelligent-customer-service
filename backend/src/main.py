@@ -85,8 +85,8 @@ _LANDING_I18N_SCRIPT = r"""
       '🚀 部署到服务器': '🚀 部署到伺服器',
       '本机跑通后，把它部署到自己的服务器对外提供服务：':
         '在本機跑通後，把它部署到自己的伺服器對外提供服務：',
-      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + Redis + 向量库）':
-        '<b>最快</b>：Docker Compose 一條命令起全套（應用 + MySQL + Redis + 向量庫）',
+      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + 向量库）':
+        '<b>最快</b>：Docker Compose 一條命令起全套（應用 + MySQL + 向量庫）',
       '<b>常规</b>：systemd 托管 + Nginx 反向代理 + HTTPS 证书':
         '<b>常規</b>：systemd 託管 + Nginx 反向代理 + HTTPS 憑證',
       '<b>注意</b>：SSE 流式问答需要在 Nginx 关闭缓冲，否则回答不会逐字出现':
@@ -114,8 +114,8 @@ _LANDING_I18N_SCRIPT = r"""
       '🚀 部署到服务器': '🚀 サーバーへデプロイ',
       '本机跑通后，把它部署到自己的服务器对外提供服务：':
         'ローカルで動作を確認したら、自分のサーバーにデプロイして公開しましょう。',
-      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + Redis + 向量库）':
-        '<b>最速</b>：Docker Compose ならコマンド 1 つで一式（アプリ + MySQL + Redis + ベクトル DB）が起動します',
+      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + 向量库）':
+        '<b>最速</b>：Docker Compose ならコマンド 1 つで一式（アプリ + MySQL + ベクトル DB）が起動します',
       '<b>常规</b>：systemd 托管 + Nginx 反向代理 + HTTPS 证书':
         '<b>標準</b>：systemd で常駐 + Nginx リバースプロキシ + HTTPS 証明書',
       '<b>注意</b>：SSE 流式问答需要在 Nginx 关闭缓冲，否则回答不会逐字出现':
@@ -143,8 +143,8 @@ _LANDING_I18N_SCRIPT = r"""
       '🚀 部署到服务器': '🚀 Deploy to a server',
       '本机跑通后，把它部署到自己的服务器对外提供服务：':
         'Once it works locally, deploy it to your own server to serve real traffic:',
-      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + Redis + 向量库）':
-        '<b>Fastest</b>: Docker Compose brings up the whole stack in one command (app + MySQL + Redis + vector DB)',
+      '<b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + 向量库）':
+        '<b>Fastest</b>: Docker Compose brings up the whole stack in one command (app + MySQL + vector DB)',
       '<b>常规</b>：systemd 托管 + Nginx 反向代理 + HTTPS 证书':
         '<b>Conventional</b>: systemd service + Nginx reverse proxy + HTTPS certificate',
       '<b>注意</b>：SSE 流式问答需要在 Nginx 关闭缓冲，否则回答不会逐字出现':
@@ -477,7 +477,7 @@ def create_app() -> FastAPI:
           <h3 data-i18n>🚀 部署到服务器</h3>
           <p data-i18n>本机跑通后，把它部署到自己的服务器对外提供服务：</p>
           <ol>
-          <li data-i18n-html><b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + Redis + 向量库）</li>
+          <li data-i18n-html><b>最快</b>：Docker Compose 一条命令起全套（应用 + MySQL + 向量库）</li>
           <li data-i18n-html><b>常规</b>：systemd 托管 + Nginx 反向代理 + HTTPS 证书</li>
           <li data-i18n-html><b>注意</b>：SSE 流式问答需要在 Nginx 关闭缓冲，否则回答不会逐字出现</li>
           </ol>

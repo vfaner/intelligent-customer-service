@@ -367,7 +367,7 @@ intelligent-customer-service/
 │   ├── requirements.txt
 │   ├── requirements-xinchuang.txt    Dameng DM8 drivers (optional, Linux/Windows only)
 │   ├── .env.example                  (optional; UI config takes precedence)
-│   ├── docker-compose.yml            MySQL + Redis + Qdrant + Milvus
+│   ├── docker-compose.yml            MySQL + Qdrant + Milvus
 │   ├── src/
 │   │   ├── main.py                   FastAPI app factory
 │   │   ├── api/                      admin · auth · chat · config · documents · models · sessions
@@ -839,7 +839,6 @@ normal use. This table is for deployment scripts and CI.
 | | `AUTH_COOKIE_NAME` | `cs_admin_token` |
 | | `AUTH_DEFAULT_USERNAME` / `AUTH_DEFAULT_PASSWORD` | `admin` / `123456` (seed account) |
 | Database | `DATABASE_URL` | `sqlite+aiosqlite:///./data/app.db` |
-| Redis | `REDIS_URL` / `REDIS_ENABLED` | empty / `false` |
 | Vector store | `VECTOR_DB_PROVIDER` | `chroma` (`chroma`\|`qdrant`\|`milvus`) |
 | | `VECTOR_DB_HOST` / `_PORT` / `_COLLECTION` | `localhost` / `6333` / `knowledge_base` |
 | | `VECTOR_DB_EMBEDDING_DIM` | `1024` |
@@ -1025,8 +1024,8 @@ bump `?v=` on the embed URL.
 <details>
 <summary><b>Some packages won't install on Python 3.14</b></summary>
 
-`langchain-text-splitters` failing is harmless — the splitter has a built-in
-implementation and doesn't depend on it. Everything else is verified on
+Text splitting is a pure built-in implementation (`utils/text_splitter.py`)
+with no third-party splitter dependency. Everything else is verified on
 Python 3.14.5.
 </details>
 
@@ -1181,7 +1180,7 @@ first:
 - [ ] `APP_ENV=production` and `APP_DEBUG=false` (debug leaks stack traces)
 - [ ] `CORS_ORIGINS` restricted to real domains, not `*`
 - [ ] Admin console access-controlled
-- [ ] App bound to `127.0.0.1`; DB / Redis / vector store not published
+- [ ] App bound to `127.0.0.1`; DB / vector store not published
 - [ ] HTTPS enabled
 - [ ] Not running as root
 - [ ] Nginx rate-limit on `/api/chat*` (protects your LLM bill)

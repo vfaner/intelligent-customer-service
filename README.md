@@ -364,7 +364,7 @@ intelligent-customer-service/
 │   ├── requirements.txt
 │   ├── requirements-xinchuang.txt    达梦 DM8 驱动（可选，仅 Linux/Windows）
 │   ├── .env.example                  （可选；页面配置优先于此）
-│   ├── docker-compose.yml            MySQL + Redis + Qdrant + Milvus
+│   ├── docker-compose.yml            MySQL + Qdrant + Milvus
 │   ├── src/
 │   │   ├── main.py                   FastAPI app factory
 │   │   ├── api/                      admin · auth · chat · config · documents · models · sessions
@@ -780,7 +780,6 @@ event: error     → 出错，{message}
 | | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | `./uploads` / `20` |
 | | `APP_GITHUB_REPO` / `APP_VERSION` | `vfaner/intelligent-customer-service` / 读自 `pyproject.toml`（检测更新用，一般无需设置 `APP_VERSION`） |
 | 数据库 | `DATABASE_URL` | `sqlite+aiosqlite:///./data/app.db` |
-| Redis | `REDIS_URL` / `REDIS_ENABLED` | 空 / `false` |
 | 向量库 | `VECTOR_DB_PROVIDER` | `chroma`（`chroma`\|`qdrant`\|`milvus`） |
 | | `VECTOR_DB_HOST` / `_PORT` / `_COLLECTION` | `localhost` / `6333` / `knowledge_base` |
 | | `VECTOR_DB_EMBEDDING_DIM` | `1024` |
@@ -953,7 +952,7 @@ location /api/chat/stream {
 <details>
 <summary><b>Python 3.14 装不上某些包</b></summary>
 
-`langchain-text-splitters` 装不上不影响 —— 切分器有内置实现，不依赖它。
+文本切分是纯内置实现（`utils/text_splitter.py`），不依赖任何第三方切分库。
 其余依赖已在 Python 3.14.5 上验证通过。
 </details>
 
@@ -1141,7 +1140,7 @@ curl -N -sS -X POST https://你的域名/api/chat/stream \
 - [ ] `APP_ENV=production` 且 `APP_DEBUG=false`（debug 会在报错时泄露栈信息）
 - [ ] `CORS_ORIGINS` 限定为实际域名（不要留 `*`）
 - [ ] 管理后台已加额外访问控制（上面三选一）
-- [ ] 应用只监听 `127.0.0.1`；数据库/Redis/向量库不映射到公网端口
+- [ ] 应用只监听 `127.0.0.1`；数据库/向量库不映射到公网端口
 - [ ] 启用 HTTPS
 - [ ] 不用 root 跑应用
 - [ ] 给 `/api/chat*` 加 Nginx 限流（防刷爆 LLM 账单）

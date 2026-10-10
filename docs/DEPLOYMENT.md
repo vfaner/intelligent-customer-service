@@ -53,7 +53,6 @@ LLM 推理在厂商侧，所以对本机 CPU/GPU 无要求。
 | 5432 | PostgreSQL / openGauss / HighGo / Vastbase | ❌ 仅内网 |
 | 54321 | 人大金仓 KingbaseES | ❌ 仅内网 |
 | 5236 | 达梦 DM8 | ❌ 仅内网 |
-| 6379 | Redis | ❌ 仅内网 |
 | 6333 | Qdrant | ❌ 仅内网 |
 | 19530 | Milvus | ❌ 仅内网 |
 
@@ -134,7 +133,7 @@ CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### 4. 写生产用的 compose 文件
 
-项目自带的 `backend/docker-compose.yml` 只起依赖服务（MySQL/Redis/Qdrant/Milvus），
+项目自带的 `backend/docker-compose.yml` 只起依赖服务（MySQL/Qdrant/Milvus），
 不含应用本身。新建项目根目录的 `docker-compose.prod.yml`：
 
 ```yaml
@@ -154,8 +153,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
@@ -179,12 +176,6 @@ services:
       interval: 10s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
   # 用 Qdrant 时取消注释
   # qdrant:
   #   image: qdrant/qdrant:latest
@@ -194,7 +185,6 @@ services:
 
 volumes:
   mysql_data:
-  redis_data:
   # qdrant_data:
 ```
 
@@ -217,8 +207,6 @@ APP_DEBUG=false
 APP_SECRET_KEY=<用下面的命令生成>
 
 DATABASE_URL=mysql+aiomysql://cs_user:<你的密码>@mysql:3306/cs_db
-REDIS_URL=redis://redis:6379/0
-REDIS_ENABLED=true
 
 # 只允许你自己的站点嵌入，不要留 *
 CORS_ORIGINS=https://你的域名,https://www.你的域名
@@ -753,7 +741,7 @@ curl -N -sS -X POST https://你的域名/api/chat/stream \
 - [ ] **`CORS_ORIGINS` 改成具体域名**，不要留 `*`
 - [ ] **管理后台再加一层访问控制**（内置登录之外，见上面三种方案）
 - [ ] **应用只监听 `127.0.0.1`**，公网入口只有 Nginx
-- [ ] **数据库/Redis/向量库不映射到公网端口**（用 `127.0.0.1:端口:端口` 形式）
+- [ ] **数据库/向量库不映射到公网端口**（用 `127.0.0.1:端口:端口` 形式）
 - [ ] **启用 HTTPS**
 - [ ] **不用 root 跑应用**
 - [ ] **给聊天接口限流**（防刷爆你的 LLM 账单）：

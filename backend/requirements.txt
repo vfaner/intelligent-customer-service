@@ -13,7 +13,7 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-multipart>=0.0.9         # FastAPI 文件上传（multipart/form-data）
 
-# ─── HTTP 客户端（LLM / Embedding 适配器直接用它，不依赖 langchain）───
+# ─── HTTP 客户端（LLM / Embedding 适配器直接使用）────────
 httpx>=0.27.0
 tenacity>=8.2.0                 # 请求重试（指数退避）
 
@@ -41,13 +41,8 @@ python-docx>=1.1.0              # .docx
 openpyxl>=3.1.0                 # .xlsx
 PyPDF2>=3.0.0                   # .pdf（可选）
 
-# ─── 文本切分 ───────────────────────────────────────────
-# 装不上也不影响运行：utils/text_splitter.py 有内置回退实现
-langchain-text-splitters>=0.3.0
-tiktoken>=0.7.0                 # token 计数（上下文预算控制）
-
-# ─── 缓存（可选，留空 REDIS_URL 则用内存）──────────────
-redis>=5.0.0
+# 文本切分不依赖第三方包：utils/text_splitter.py 是纯内置实现；
+# 上下文预算按字符数控制（RAG_MAX_CONTEXT_CHARS），不用 tiktoken。
 
 # ─── 工具 ───────────────────────────────────────────────
 python-dotenv>=1.0.0

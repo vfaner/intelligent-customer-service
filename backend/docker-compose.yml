@@ -1,8 +1,8 @@
 version: "3.9"
 
 # Optional infrastructure for production deployments.
-# All services are opt-in: SQLite + in-memory cache + Chroma local persist
-# work out of the box without Docker.
+# All services are opt-in: SQLite + Chroma local persist work out of the box
+# without Docker.
 
 services:
   mysql:
@@ -23,19 +23,6 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpass"]
       interval: 5s
       retries: 20
-
-  redis:
-    image: redis:7-alpine
-    container_name: cs_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      retries: 10
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -119,7 +106,6 @@ services:
 
 volumes:
   mysql_data:
-  redis_data:
   qdrant_data:
   milvus_etcd:
   milvus_minio:

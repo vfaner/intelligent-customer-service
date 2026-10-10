@@ -25,7 +25,6 @@ REQUIRED = [
 ]
 
 OPTIONAL = [
-    ("langchain_text_splitters", "langchain-text-splitters (falls back to built-in)"),
     ("chromadb",       "ChromaDB"),
     ("qdrant_client",  "Qdrant client"),
     ("pymilvus",       "Milvus client (pymilvus)"),
@@ -33,7 +32,6 @@ OPTIONAL = [
     ("dmAsync",        "dmAsync (达梦 DM8 异步驱动，信创可选)"),
     ("milvus_lite",    "Milvus Lite (本地 .db 模式需要)"),
     ("PyPDF2",         "PyPDF2 (pdf support)"),
-    ("redis",          "redis-py"),
     ("tenacity",       "tenacity"),
 ]
 
